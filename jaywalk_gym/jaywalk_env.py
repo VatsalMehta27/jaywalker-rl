@@ -1,5 +1,6 @@
 import gymnasium as gym
 from gymnasium import spaces
+from matplotlib import pyplot as plt
 import numpy as np
 
 
@@ -97,6 +98,7 @@ class JaywalkEnv(gym.Env):
             spawn_lanes = [
                 lane for lane in range(1, 3) if not self._is_first_column_occupied(lane)
             ]
+
             if spawn_lanes:
                 lane = np.random.choice(spawn_lanes)
                 # Sample speed from a normal distribution (mean=2, std=1)
@@ -181,17 +183,66 @@ class JaywalkEnv(gym.Env):
             "vehicles": vehicles_array,
         }
 
-    def render(self, mode="human"):
+    @staticmethod
+    def _plot_grid(grid):
+        # Convert the grid into a numerical array
+        color_array = np.zeros((len(grid), len(grid[0])), dtype=int)
+
+        # Map 'V' to 1 (red), 'A' to 2 (green), and '.' to 0 (white)
+        for i, row in enumerate(grid):
+            for j, char in enumerate(row):
+                if char == "V":
+                    color_array[i, j] = 1
+                elif char == "A":
+                    color_array[i, j] = 2
+                else:
+                    color_array[i, j] = 0
+
+        # Create a figure and axis
+        fig, ax = plt.subplots()
+
+        # Create a colormap: 0 -> white, 1 -> red, 2 -> green
+        cmap = plt.cm.colors.ListedColormap(["white", "red", "green"])
+
+        # Plot the grid
+        ax.imshow(color_array, cmap=cmap, aspect="equal")
+
+        # Set the limits of the plot to match the grid size
+        ax.set_xlim(-0.5, color_array.shape[1] - 0.5)
+        ax.set_ylim(color_array.shape[0] - 0.5, -0.5)
+
+        # Add grid lines
+        ax.set_xticks(np.arange(-0.5, color_array.shape[1], 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, color_array.shape[0], 1), minor=True)
+        ax.grid(which="minor", color="black", linestyle="-", linewidth=2)
+
+        # Remove the major ticks
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        # Display the plot
+        plt.show()
+
+    def render(self, mode="ansi"):
         """Optional: Render the current state of the environment for debugging."""
         grid = np.full(self.grid_shape, ".", dtype=str)
         grid[self.agent_position[0], self.agent_position[1]] = "A"  # Place agent
 
         for vehicle in self.vehicles:
             lane, _, position = vehicle
-            if position < self.grid_shape[1]:  # Ensure position is within bounds
-                grid[lane, position] = "V"  # Place vehicle
 
-        print("\n".join("".join(row) for row in grid))
+            if position < self.grid_shape[1]:  # Ensure position is within bounds
+                grid[lane, position] = "V"
+
+        grid_lanes = ["".join(row) for row in grid]
+
+        if mode == "ansi":
+            print("\n".join(grid_lanes))
+            return
+
+        if mode == "human":
+            self._plot_grid(grid_lanes)
+            return
 
 
 # Example of how to use the environment
