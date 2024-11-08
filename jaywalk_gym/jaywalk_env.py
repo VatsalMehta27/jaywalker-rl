@@ -1,102 +1,119 @@
+from dataclasses import dataclass, field
+from itertools import cycle
 import gymnasium as gym
 from gymnasium import spaces
 from matplotlib import pyplot as plt
 import numpy as np
 
 
+@dataclass
+class EnvParams:
+    max_vehicles: int = 5
+    p_vehicle_spawn: float = 0.4
+    p_vehicle_stop_pedestrian: float = 0.8
+    mean_vehicle_speed: float = 1.5
+    use_traffic_light: bool = True
+    num_consecutive_roads: int = 2
+    num_columns: int = 11
+    light_durations: dict[str, int] = field(
+        default_factory=lambda: {"GREEN": 10, "YELLOW": 3, "RED": 5}
+    )
+
+
 class JaywalkEnv(gym.Env):
-    def __init__(
-        self,
-        max_vehicles=5,
-        p_vehicle_spawn=0.4,
-        p_vehicle_stop_pedestrian=0.8,
-        mean_vehicle_speed=1.5,
-        use_traffic_light=True,
-    ):
+    def __init__(self, params: EnvParams):
         super(JaywalkEnv, self).__init__()
 
-        # Define grid dimensions
-        self.grid_shape = (4, 11)
+        self.num_consecutive_roads = params.num_consecutive_roads
+        # TODO: Remove hardcoded 3
+        num_rows = 3 + self.num_consecutive_roads * 2
+        self.grid_shape = (num_rows, params.num_columns)
         self.crosswalk_column = self.grid_shape[1] // 2
-        self.vehicle_lanes = [1, 2]
 
-        # Start agent in the middle of the bottom row
-        self.agent_start_position = (0, self.crosswalk_column)  # Row 3, Column 5
-        self.agent_position = list(self.agent_start_position)  # Make it mutable
+        self.agent_start_position = (0, self.crosswalk_column)
+        self.goal_position = (self.grid_shape[0] - 1, self.crosswalk_column)
 
-        self.goal_position = (3, self.crosswalk_column)
+        self.agent_position = list(self.agent_start_position)
+        self.agent_representation = 100
 
-        self.actions = {1: "forward", -1: "backward", 0: "wait"}
+        self.actions = {-1: "backward", 0: "wait", 1: "forward"}
 
         # Action space: using discrete integers
         self.action_space = spaces.Discrete(len(self.actions), start=-1)
-
-        # Observation space
         self.observation_space = spaces.Dict(
             {
-                "agent_position": spaces.Box(low=0, high=3, shape=(2,), dtype=np.int32),
-                "vehicles": spaces.Dict(
-                    {
-                        lane: spaces.Box(
-                            low=0, high=10, shape=(max_vehicles, 2), dtype=np.int32
-                        )
-                        for lane in self.vehicle_lanes
-                    }
+                "traffic_light": spaces.Discrete(3),  # 0: RED, 1: YELLOW, 2: GREEN
+                "world_grid": spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=self.grid_shape,
+                    dtype=np.int32,
                 ),
             }
         )
 
-        # Vehicle parameters
         self.num_vehicles = 0
-        self.max_vehicles = max_vehicles
-        self.p_vehicle_spawn = p_vehicle_spawn
-        self.p_vehicle_stop_pedestrian = p_vehicle_stop_pedestrian
-        self.mean_vehicle_speed = mean_vehicle_speed
-        self.road = [list() for _ in range(len(self.vehicle_lanes))]
+        self.max_vehicles = params.max_vehicles
+        self.p_vehicle_spawn = params.p_vehicle_spawn
+        self.p_vehicle_stop_pedestrian = params.p_vehicle_stop_pedestrian
+        self.mean_vehicle_speed = params.mean_vehicle_speed
 
-        self.use_traffic_light = use_traffic_light
-        self.light_color = "GREEN"
+        # TODO: Remove hardcoded 2
+        # TODO: Introduce "direction" aspect
+        self.lanes = {i: [] for i in range(self.grid_shape[0]) if i % 3 != 0}
+
+        self.use_traffic_light = params.use_traffic_light
+        self.light_durations = params.light_durations
+        self.light_cycle = cycle(self.light_durations.keys())
+        self.light_color = next(self.light_cycle)
+        self.light_index = 0
         self.light_timer = 0
-        self.light_durations = {
-            "GREEN": 10,
-            "YELLOW": 3,
-            "RED": 5,
-        }
+
+        self.time_steps = 0
 
     def reset(self):
-        """Resets the environment to the initial state and returns the initial observation."""
+        # Reset agent position
         self.agent_position = list(self.agent_start_position)
-        self.road = [list() for _ in range(len(self.vehicle_lanes))]
+
+        # Reset all vehicles
         self.num_vehicles = 0
-        self.light_color = "GREEN"
+        self.lanes = {i: [] for i in range(self.grid_shape[0]) if i % 3 != 0}
+
+        # Reset traffic light
+        self.light_cycle = cycle(self.light_durations.keys())
+        self.light_color = next(self.light_cycle)
+        self.light_index = 0
         self.light_timer = 0
+
+        self.time_steps = 0
 
         return self._get_observation()
 
     def step(self, action):
-        """Executes one time step in the environment based on the given action."""
-        if action == 1:  # Move forward
-            self.agent_position[0] = max(self.agent_position[0] + 1, 0)
-        elif action == -1:  # Move backward
-            self.agent_position[0] = min(self.agent_position[0] - 1, 3)
-        elif action == 0:  # Wait
-            pass
-        else:
-            raise Exception("Invalid action.")
+        match action:
+            case 1:
+                self.agent_position[0] = max(self.agent_position[0] + 1, 0)
+            case -1:
+                self.agent_position[0] = min(self.agent_position[0] - 1, 3)
+            case 0:
+                pass
+            case _:
+                raise Exception("Invalid action.")
 
-        pedestrian_collision = self._advance_vehicles()
+        pedestrian_collion = self._advance_vehicles()
+        print("Pedestrian Collision:", pedestrian_collion)
 
         reward = 0
         done = False
 
-        if pedestrian_collision:
+        if pedestrian_collion:
             reward = -10
             done = True
         else:
             self._spawn_vehicle()
             self._update_traffic_light()
 
-            # Define reward structure, terminal conditions, etc.
+            # Reward for reaching goal position
             if (
                 self.agent_position[0] == self.goal_position[0]
                 and self.agent_position[1] == self.goal_position[1]
@@ -104,59 +121,14 @@ class JaywalkEnv(gym.Env):
                 reward = 1
                 done = True
 
-        # Return observation, reward, done, info
+        self.time_steps += 1
+
         return self._get_observation(), reward, done, {}
 
-    def _update_traffic_light(self):
-        if self.use_traffic_light:
-            self.light_timer += 1
-
-            if self.light_timer >= self.light_durations[self.light_color]:
-                match self.light_color:
-                    case "GREEN":
-                        self.light_color = "YELLOW"
-                    case "YELLOW":
-                        self.light_color = "RED"
-                    case "RED":
-                        self.light_color = "GREEN"
-
-                self.light_timer = 0
-
-    def _spawn_vehicle(self):
-        """Spawns a new vehicle based on the defined probability and rules."""
-        if (
-            self.num_vehicles < self.max_vehicles
-            and np.random.rand() < self.p_vehicle_spawn
-        ):
-            # Randomly select a lane (1 or 2) where the first column is unoccupied
-            spawn_lanes = [
-                lane_idx
-                for lane_idx in range(len(self.vehicle_lanes))
-                if not self._is_first_column_occupied(lane_idx)
-            ]
-
-            if spawn_lanes:
-                lane_idx = np.random.choice(
-                    spawn_lanes
-                )  # Select a random unoccupied lane index
-                speed = max(1, round(np.random.normal(self.mean_vehicle_speed, 1)))
-                vehicle = (speed, 0)  # Vehicle starts at column 0 in its lane
-
-                self.road[lane_idx].append(vehicle)
-                self.num_vehicles += 1
-
-    def _is_first_column_occupied(self, lane):
-        """Checks if the first column (column index 0) of the specified lane is occupied by a vehicle."""
-        return any(vehicle[1] == 0 for vehicle in self.road[lane])
-
     def _advance_vehicles(self):
-        """
-        Advances all vehicles in the grid by their speed, adjusting speeds to avoid collisions.
-        """
         pedestrian_collision = False
-        updated_road = []
 
-        for lane_idx, lane in enumerate(self.road):
+        for lane_idx, lane in self.lanes.items():
             sorted_lane = sorted(lane, key=lambda v: -1 * v[1])
 
             for i, vehicle in enumerate(sorted_lane):
@@ -182,7 +154,7 @@ class JaywalkEnv(gym.Env):
                             if vehicle_stop < self.p_vehicle_stop_pedestrian:
                                 new_position = self.crosswalk_column - 1
                         case "GREEN":
-                            if self.vehicle_lanes[lane_idx] == self.agent_position[0]:
+                            if lane_idx == self.agent_position[0]:
                                 vehicle_stop = np.random.rand()
 
                                 if vehicle_stop < self.p_vehicle_stop_pedestrian:
@@ -196,31 +168,57 @@ class JaywalkEnv(gym.Env):
                 filter(lambda v: v[1] < self.grid_shape[1], sorted_lane)
             )
 
-            updated_road.append(filtered_lane)
-
-        self.road = updated_road
+            self.lanes[lane_idx] = filtered_lane
 
         return pedestrian_collision
 
+    def _spawn_vehicle(self):
+        if (
+            self.num_vehicles < self.max_vehicles
+            and np.random.rand() < self.p_vehicle_spawn
+        ):
+            spawn_lanes = [
+                lane_idx
+                for lane_idx in self.lanes.keys()
+                if not self._is_first_column_occupied(lane_idx)
+            ]
+            print("Spawn Lanes:", spawn_lanes)
+
+            if spawn_lanes:
+                lane_idx = np.random.choice(
+                    spawn_lanes
+                )  # Select a random unoccupied lane index
+                speed = max(1, round(np.random.normal(self.mean_vehicle_speed, 1)))
+                vehicle = (speed, 0)  # Vehicle starts at column 0 in its lane
+
+                self.lanes[lane_idx].append(vehicle)
+                self.num_vehicles += 1
+
+    def _is_first_column_occupied(self, lane_idx):
+        """Checks if the first column (column index 0) of the specified lane is occupied by a vehicle."""
+        return any(vehicle[1] == 0 for vehicle in self.lanes[lane_idx])
+
+    def _update_traffic_light(self):
+        if self.use_traffic_light:
+            self.light_timer += 1
+
+            if self.light_timer >= self.light_durations[self.light_color]:
+                self.light_color = next(self.light_cycle)
+                self.light_timer = 0
+
+                self.light_index += 1
+                if self.light_index >= len(self.light_durations):
+                    self.light_index = 0
+
     def _get_observation(self):
-        """Constructs the current observation as the agent's position and vehicles grouped by lane."""
-        # Prepare a dictionary to hold vehicles per lane
-        vehicles_dict = {
-            lane: np.zeros((self.max_vehicles, 2), dtype=np.int32)
-            for lane in self.vehicle_lanes
-        }
+        grid = np.zeros(self.grid_shape, dtype=np.int32)
+        grid[self.agent_position[0], self.agent_position[1]] = self.agent_representation
 
-        # Fill in each lane's vehicles based on self.road, ensuring consistent shape
-        for lane_idx, lane_vehicles in enumerate(self.road):
-            for i, (speed, position) in enumerate(lane_vehicles):
-                if i < self.max_vehicles:
-                    vehicles_dict[self.vehicle_lanes[lane_idx]][i] = [speed, position]
+        for lane_idx, lane_vehicles in self.lanes.items():
+            for velocity, position in lane_vehicles:
+                grid[lane_idx, position] = velocity
 
-        # Construct and return the observation dictionary
-        return {
-            "agent_position": np.array(self.agent_position, dtype=np.int32),
-            "vehicles": vehicles_dict,
-        }
+        return {"traffic_light": self.light_index, "world_grid": grid}
 
     @staticmethod
     def _plot_grid(grid):
@@ -264,17 +262,17 @@ class JaywalkEnv(gym.Env):
 
     def render(self, mode="ansi"):
         """Optional: Render the current state of the environment for debugging."""
-        grid = np.full(self.grid_shape, ".", dtype=str)
-        grid[self.agent_position[0], self.agent_position[1]] = "A"  # Place agent
+        grid = self._get_observation()["world_grid"]
 
-        for lane_idx, lane in enumerate(self.road):
-            for vehicle in lane:
-                _, position = vehicle
+        grid_visualization = np.full(
+            grid.shape, ".", dtype=str
+        )  # Start with all "." values
 
-                if position < self.grid_shape[1]:  # Ensure position is within bounds
-                    grid[self.vehicle_lanes[lane_idx], position] = "V"
+        # Replace values based on conditions
+        grid_visualization[grid == self.agent_representation] = "A"
+        grid_visualization[(grid != 0) & (grid != self.agent_representation)] = "V"
 
-        grid_lanes = ["".join(row) for row in grid]
+        grid_lanes = ["".join(row) for row in grid_visualization]
 
         if mode == "ansi":
             print("\n".join(grid_lanes))
@@ -283,17 +281,3 @@ class JaywalkEnv(gym.Env):
         if mode == "human":
             self._plot_grid(grid_lanes)
             return
-
-
-# Example of how to use the environment
-if __name__ == "__main__":
-    env = JaywalkEnv()
-    obs = env.reset()
-    done = False
-
-    while not done:
-        env.render()
-        action = int(
-            input("Choose an action (0: forward, 1: backward, 2: wait): ")
-        )  # 0: forward, 1: backward, 2: wait
-        obs, reward, done, info = env.step(action)
