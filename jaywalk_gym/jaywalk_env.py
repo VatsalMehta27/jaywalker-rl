@@ -59,9 +59,7 @@ class JaywalkEnv(gym.Env):
         self.p_vehicle_stop_pedestrian = params.p_vehicle_stop_pedestrian
         self.mean_vehicle_speed = params.mean_vehicle_speed
 
-        # TODO: Remove hardcoded 2
-        # TODO: Introduce "direction" aspect
-        self.lanes = {i: [] for i in range(self.grid_shape[0]) if i % 3 != 0}
+        self.lanes = self._initialize_lanes()
 
         self.use_traffic_light = params.use_traffic_light
         self.light_durations = params.light_durations
@@ -78,7 +76,7 @@ class JaywalkEnv(gym.Env):
 
         # Reset all vehicles
         self.num_vehicles = 0
-        self.lanes = {i: [] for i in range(self.grid_shape[0]) if i % 3 != 0}
+        self.lanes = self._initialize_lanes()
 
         # Reset traffic light
         self.light_cycle = cycle(self.light_durations.keys())
@@ -89,6 +87,13 @@ class JaywalkEnv(gym.Env):
         self.time_steps = 0
 
         return self._get_observation()
+
+    def _initialize_lanes(self):
+        return {
+            i: {"direction": -1 if (i // 3) % 2 != 0 else 1, "vehicles": []}
+            for i in range(self.grid_shape[0])
+            if i % 3 != 0
+        }
 
     def step(self, action):
         match action:
@@ -129,8 +134,10 @@ class JaywalkEnv(gym.Env):
         pedestrian_collision = False
         num_vehicles = 0
 
-        for lane_idx, lane in self.lanes.items():
-            sorted_lane = sorted(lane, key=lambda v: -1 * v[1])
+        for lane_idx, lane_info in self.lanes.items():
+            lane = lane_info["vehicles"]
+            direction = lane_info["direction"]
+            sorted_lane = sorted(lane, key=lambda v: -1 * direction * v[1])
 
             for i, vehicle in enumerate(sorted_lane):
                 speed, position = vehicle
@@ -139,37 +146,40 @@ class JaywalkEnv(gym.Env):
                 new_position = position + speed
 
                 # Check for vehicle collision
-                if i > 0 and sorted_lane[i - 1][1] <= new_position:
-                    new_position = sorted_lane[i - 1][1] - 1
+                if (
+                    i > 0
+                    and direction * sorted_lane[i - 1][1] <= direction * new_position
+                ):
+                    new_position = sorted_lane[i - 1][1] - 1 * direction
                     new_speed = sorted_lane[i - 1][0]
-                elif (
-                    position < self.crosswalk_column <= new_position
+                elif (position < self.crosswalk_column <= new_position) or (
+                    new_position <= self.crosswalk_column < position
                 ):  # Crossing the crosswalk
                     match self.light_color:
                         case "RED":
-                            new_position = self.crosswalk_column - 1
+                            new_position = self.crosswalk_column - 1 * direction
                         case "YELLOW":
                             vehicle_stop = np.random.rand()
 
                             # TODO: Update this with some yellow light based prob of stopping?
                             if vehicle_stop < self.p_vehicle_stop_pedestrian:
-                                new_position = self.crosswalk_column - 1
+                                new_position = self.crosswalk_column - 1 * direction
                         case "GREEN":
                             if lane_idx == self.agent_position[0]:
                                 vehicle_stop = np.random.rand()
 
                                 if vehicle_stop < self.p_vehicle_stop_pedestrian:
-                                    new_position = self.crosswalk_column - 1
+                                    new_position = self.crosswalk_column - 1 * direction
                                 else:
                                     pedestrian_collision = True
 
                 sorted_lane[i] = (new_speed, new_position)
 
             filtered_lane = list(
-                filter(lambda v: v[1] < self.grid_shape[1], sorted_lane)
+                filter(lambda v: 0 <= v[1] < self.grid_shape[1], sorted_lane)
             )
 
-            self.lanes[lane_idx] = filtered_lane
+            self.lanes[lane_idx]["vehicles"] = filtered_lane
             num_vehicles += len(filtered_lane)
 
         self.num_vehicles = num_vehicles
@@ -188,18 +198,27 @@ class JaywalkEnv(gym.Env):
             ]
 
             if spawn_lanes:
-                lane_idx = np.random.choice(
-                    spawn_lanes
-                )  # Select a random unoccupied lane index
-                speed = max(1, round(np.random.normal(self.mean_vehicle_speed, 1)))
-                vehicle = (speed, 0)  # Vehicle starts at column 0 in its lane
+                # Select a random unoccupied lane index
+                lane_idx = np.random.choice(spawn_lanes)
+                direction = self.lanes[lane_idx]["direction"]
+                speed = (
+                    max(1, round(np.random.normal(self.mean_vehicle_speed, 1)))
+                    * direction
+                )
 
-                self.lanes[lane_idx].append(vehicle)
+                if direction == 1:
+                    start_pos = 0
+                else:
+                    start_pos = self.grid_shape[1] - 1
+
+                vehicle = (speed, start_pos)  # Vehicle starts at column 0 in its lane
+
+                self.lanes[lane_idx]["vehicles"].append(vehicle)
                 self.num_vehicles += 1
 
     def _is_first_column_occupied(self, lane_idx):
         """Checks if the first column (column index 0) of the specified lane is occupied by a vehicle."""
-        return any(vehicle[1] == 0 for vehicle in self.lanes[lane_idx])
+        return any(vehicle[1] == 0 for vehicle in self.lanes[lane_idx]["vehicles"])
 
     def _update_traffic_light(self):
         if self.use_traffic_light:
@@ -217,8 +236,8 @@ class JaywalkEnv(gym.Env):
         grid = np.zeros(self.grid_shape, dtype=np.int32)
         grid[self.agent_position[0], self.agent_position[1]] = self.agent_representation
 
-        for lane_idx, lane_vehicles in self.lanes.items():
-            for velocity, position in lane_vehicles:
+        for lane_idx, lane_info in self.lanes.items():
+            for velocity, position in lane_info["vehicles"]:
                 grid[lane_idx, position] = velocity
 
         return {"traffic_light": self.light_index, "world_grid": grid}
