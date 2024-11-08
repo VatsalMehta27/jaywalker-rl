@@ -102,7 +102,6 @@ class JaywalkEnv(gym.Env):
                 raise Exception("Invalid action.")
 
         pedestrian_collion = self._advance_vehicles()
-        print("Pedestrian Collision:", pedestrian_collion)
 
         reward = 0
         done = False
@@ -128,6 +127,7 @@ class JaywalkEnv(gym.Env):
 
     def _advance_vehicles(self):
         pedestrian_collision = False
+        num_vehicles = 0
 
         for lane_idx, lane in self.lanes.items():
             sorted_lane = sorted(lane, key=lambda v: -1 * v[1])
@@ -170,6 +170,9 @@ class JaywalkEnv(gym.Env):
             )
 
             self.lanes[lane_idx] = filtered_lane
+            num_vehicles += len(filtered_lane)
+
+        self.num_vehicles = num_vehicles
 
         return pedestrian_collision
 
@@ -183,7 +186,6 @@ class JaywalkEnv(gym.Env):
                 for lane_idx in self.lanes.keys()
                 if not self._is_first_column_occupied(lane_idx)
             ]
-            print("Spawn Lanes:", spawn_lanes)
 
             if spawn_lanes:
                 lane_idx = np.random.choice(
@@ -256,7 +258,7 @@ class JaywalkEnv(gym.Env):
         inactive_color = "gray"
 
         # Draw the three traffic light circles
-        for idx, light in enumerate(self.light_durations.keys()):
+        for idx, light in enumerate(list(self.light_durations.keys())[::-1]):
             color = light_colors[light] if light == self.light_color else inactive_color
             circle = patches.Circle(
                 (0.5, 2.5 - idx), 0.4, edgecolor="black", facecolor=color
