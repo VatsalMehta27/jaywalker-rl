@@ -15,6 +15,7 @@ class EnvParams:
     mean_vehicle_speed: float = 1.5
     use_traffic_light: bool = True
     num_consecutive_roads: int = 2
+    num_lane_groups: int = 2
     num_columns: int = 11
     light_durations: dict[str, int] = field(
         default_factory=lambda: {"GREEN": 10, "YELLOW": 3, "RED": 5}
@@ -27,7 +28,11 @@ class JaywalkEnv(gym.Env):
 
         self.num_consecutive_roads = params.num_consecutive_roads
         # TODO: Remove hardcoded 3
-        num_rows = 3 + self.num_consecutive_roads * 2
+        num_rows = (
+            params.num_lane_groups
+            + 1
+            + self.num_consecutive_roads * params.num_lane_groups
+        )
         self.grid_shape = (num_rows, params.num_columns)
         self.crosswalk_column = self.grid_shape[1] // 2
 
