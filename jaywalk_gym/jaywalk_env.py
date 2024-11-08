@@ -3,6 +3,7 @@ from itertools import cycle
 import gymnasium as gym
 from gymnasium import spaces
 from matplotlib import pyplot as plt
+import matplotlib.patches as patches
 import numpy as np
 
 
@@ -220,9 +221,8 @@ class JaywalkEnv(gym.Env):
 
         return {"traffic_light": self.light_index, "world_grid": grid}
 
-    @staticmethod
-    def _plot_grid(grid):
-        # Convert the grid into a numerical array
+    def _plot_grid(self, grid):
+        # Convert the grid into a numerical array for easy visualization
         color_array = np.zeros((len(grid), len(grid[0])), dtype=int)
 
         # Map 'V' to 1 (red), 'A' to 2 (green), and '.' to 0 (white)
@@ -235,38 +235,48 @@ class JaywalkEnv(gym.Env):
                 else:
                     color_array[i, j] = 0
 
-        # Create a figure and axis
-        fig, ax = plt.subplots()
+        # Set up the figure with two subplots: one for the grid and one for the traffic light
+        fig, (ax, traffic_light_ax) = plt.subplots(
+            1, 2, gridspec_kw={"width_ratios": [4, 1]}, figsize=(10, 6)
+        )
 
-        # Create a colormap: 0 -> white, 1 -> red, 2 -> green
+        # Plot the grid on the left subplot
         cmap = plt.cm.colors.ListedColormap(["white", "red", "green"])
-
-        # Plot the grid
         ax.imshow(color_array, cmap=cmap, aspect="equal")
-
-        # Set the limits of the plot to match the grid size
-        ax.set_xlim(-0.5, color_array.shape[1] - 0.5)
-        ax.set_ylim(color_array.shape[0] - 0.5, -0.5)
 
         # Add grid lines
         ax.set_xticks(np.arange(-0.5, color_array.shape[1], 1), minor=True)
         ax.set_yticks(np.arange(-0.5, color_array.shape[0], 1), minor=True)
         ax.grid(which="minor", color="black", linestyle="-", linewidth=2)
-
-        # Remove the major ticks
         ax.set_xticks([])
         ax.set_yticks([])
 
+        # Set up the traffic light circles on the right subplot
+        light_colors = {color: color.lower() for color in self.light_durations.keys()}
+        inactive_color = "gray"
+
+        # Draw the three traffic light circles
+        for idx, light in enumerate(self.light_durations.keys()):
+            color = light_colors[light] if light == self.light_color else inactive_color
+            circle = patches.Circle(
+                (0.5, 2.5 - idx), 0.4, edgecolor="black", facecolor=color
+            )
+            traffic_light_ax.add_patch(circle)
+
+        # Remove the axes for the traffic light subplot for a cleaner look
+        traffic_light_ax.set_xlim(0, 1)
+        traffic_light_ax.set_ylim(0, 3)
+        traffic_light_ax.axis("off")
+
         # Display the plot
+        plt.tight_layout()
         plt.show()
 
     def render(self, mode="ansi"):
         """Optional: Render the current state of the environment for debugging."""
         grid = self._get_observation()["world_grid"]
 
-        grid_visualization = np.full(
-            grid.shape, ".", dtype=str
-        )  # Start with all "." values
+        grid_visualization = np.full(grid.shape, ".", dtype=str)
 
         # Replace values based on conditions
         grid_visualization[grid == self.agent_representation] = "A"
@@ -275,9 +285,9 @@ class JaywalkEnv(gym.Env):
         grid_lanes = ["".join(row) for row in grid_visualization]
 
         if mode == "ansi":
-            print("\n".join(grid_lanes))
+            print("\n".join(grid_lanes) + f"\nTraffic Light Color: {self.light_color}")
             return
 
         if mode == "human":
-            self._plot_grid(grid_lanes)
+            self._plot_grid(grid_visualization)
             return
