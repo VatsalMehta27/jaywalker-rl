@@ -9,9 +9,9 @@ import numpy as np
 
 @dataclass
 class EnvParams:
-    max_vehicles: int = 5
+    max_vehicles: int = 10
     p_vehicle_spawn: float = 0.4
-    p_vehicle_stop_pedestrian: float = 0.8
+    p_vehicle_stop: float = 0.8
     mean_vehicle_speed: float = 1.5
     use_traffic_light: bool = True
     num_consecutive_roads: int = 2
@@ -20,6 +20,8 @@ class EnvParams:
     light_durations: dict[str, int] = field(
         default_factory=lambda: {"GREEN": 10, "YELLOW": 3, "RED": 5}
     )
+    max_reward: int = 100
+    death_reward: int = -500
 
 
 class JaywalkEnv(gym.Env):
@@ -60,7 +62,7 @@ class JaywalkEnv(gym.Env):
         self.num_vehicles = 0
         self.max_vehicles = params.max_vehicles
         self.p_vehicle_spawn = params.p_vehicle_spawn
-        self.p_vehicle_stop_pedestrian = params.p_vehicle_stop_pedestrian
+        self.p_vehicle_stop = params.p_vehicle_stop
         self.mean_vehicle_speed = params.mean_vehicle_speed
 
         self.lanes = self._initialize_lanes()
@@ -71,6 +73,9 @@ class JaywalkEnv(gym.Env):
         self.light_color = next(self.light_cycle)
         self.light_index = 0
         self.light_timer = 0
+
+        self.max_reward = params.max_reward
+        self.death_reward = params.death_reward
 
         self.time_steps = 0
 
@@ -116,7 +121,7 @@ class JaywalkEnv(gym.Env):
         done = False
 
         if pedestrian_collion:
-            reward = -10
+            reward = self.death_reward
             done = True
         else:
             self._spawn_vehicle()
@@ -127,7 +132,7 @@ class JaywalkEnv(gym.Env):
                 self.agent_position[0] == self.goal_position[0]
                 and self.agent_position[1] == self.goal_position[1]
             ):
-                reward = 1
+                reward = self.max_reward / self.time_steps
                 done = True
 
         self.time_steps += 1
@@ -167,13 +172,13 @@ class JaywalkEnv(gym.Env):
                             vehicle_stop = np.random.rand()
 
                             # TODO: Update this with some yellow light based prob of stopping?
-                            if vehicle_stop < self.p_vehicle_stop_pedestrian:
+                            if vehicle_stop < self.p_vehicle_stop:
                                 new_position = self.crosswalk_column - 1 * direction
                         case "GREEN":
                             if lane_idx == self.agent_position[0]:
                                 vehicle_stop = np.random.rand()
 
-                                if vehicle_stop < self.p_vehicle_stop_pedestrian:
+                                if vehicle_stop < self.p_vehicle_stop:
                                     new_position = self.crosswalk_column - 1 * direction
                                 else:
                                     pedestrian_collision = True
