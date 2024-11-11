@@ -27,7 +27,6 @@ class JaywalkEnv(gym.Env):
         super(JaywalkEnv, self).__init__()
 
         self.num_consecutive_roads = params.num_consecutive_roads
-        # TODO: Remove hardcoded 3
         num_rows = (
             params.num_lane_groups
             + 1
@@ -151,6 +150,7 @@ class JaywalkEnv(gym.Env):
                 new_position = position + speed
 
                 # Check for vehicle collision
+                # TODO: fix red light skipping for direction = 1
                 if (
                     i > 0
                     and direction * sorted_lane[i - 1][1] <= direction * new_position
@@ -258,6 +258,8 @@ class JaywalkEnv(gym.Env):
                     color_array[i, j] = 1
                 elif char == "A":
                     color_array[i, j] = 2
+                elif char == "X":
+                    color_array[i, j] = 3
                 else:
                     color_array[i, j] = 0
 
@@ -267,7 +269,7 @@ class JaywalkEnv(gym.Env):
         )
 
         # Plot the grid on the left subplot
-        cmap = plt.cm.colors.ListedColormap(["white", "red", "green"])
+        cmap = plt.cm.colors.ListedColormap(["white", "red", "green", "grey"])
         ax.imshow(color_array, cmap=cmap, aspect="equal")
 
         # Add grid lines
@@ -302,10 +304,18 @@ class JaywalkEnv(gym.Env):
         """Optional: Render the current state of the environment for debugging."""
         grid = self._get_observation()["world_grid"]
 
+        # Initialize a grid visualization array with '.' for empty cells
         grid_visualization = np.full(grid.shape, ".", dtype=str)
 
-        # Replace values based on conditions
+        # Mark non-lane rows with 'X'
+        for row in range(grid.shape[0]):
+            if row not in self.lanes.keys():
+                grid_visualization[row, :] = "X"
+
+        # Mark the agent's position with 'A'
         grid_visualization[grid == self.agent_representation] = "A"
+
+        # Mark vehicles with 'V'
         grid_visualization[(grid != 0) & (grid != self.agent_representation)] = "V"
 
         grid_lanes = ["".join(row) for row in grid_visualization]
