@@ -1,3 +1,4 @@
+import json
 from gymnasium import Env
 from collections import defaultdict
 import numpy as np
@@ -87,3 +88,21 @@ class QLearning(object):
             timesteps.append(self.env.time_steps)
 
         return rewards, timesteps
+
+    def save(self, filepath="qlearning_qvalue.json"):
+        with open(filepath, "w") as file:
+            json.dump(dict(self.Q), file)
+
+        print(f"Saved to {filepath}!")
+
+    def load(self, filepath="qlearning_qvalue.json"):
+        if filepath.endswith(".json"):
+            with open(filepath, "r") as file:
+                q_values = json.load(file)
+                self.Q = defaultdict(
+                    lambda: [0 for _ in range(self.action_num)], q_values
+                )
+
+            print(f"Loaded values from {filepath}!")
+
+        raise Exception("Invalid file type.")
