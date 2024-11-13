@@ -95,7 +95,10 @@ class JaywalkEnv(gym.Env):
 
         self.time_steps = 0
 
-        return self._get_observation()
+        for _ in range(10):
+            self._environment_movement()
+
+        return self._get_observation(), {}
 
     def _initialize_lanes(self):
         return {
@@ -107,20 +110,29 @@ class JaywalkEnv(gym.Env):
     def step(self, action):
         match action:
             case 1:
-                self.agent_position[0] = max(self.agent_position[0] + 1, 0)
+                self.agent_position[0] = min(
+                    self.agent_position[0] + 1, self.grid_shape[0]
+                )
             case -1:
-                self.agent_position[0] = min(self.agent_position[0] - 1, 3)
+                self.agent_position[0] = max(self.agent_position[0] - 1, 0)
             case 0:
                 pass
             case _:
                 raise Exception("Invalid action.")
 
-        pedestrian_collion = self._advance_vehicles()
+        reward, done = self._environment_movement()
+
+        self.time_steps += 1
+
+        return self._get_observation(), reward, done, {}
+
+    def _environment_movement(self):
+        pedestrian_collision = self._advance_vehicles()
 
         reward = 0
         done = False
 
-        if pedestrian_collion:
+        if pedestrian_collision:
             reward = self.death_reward
             done = True
         else:
@@ -135,9 +147,7 @@ class JaywalkEnv(gym.Env):
                 reward = self.max_reward / self.time_steps
                 done = True
 
-        self.time_steps += 1
-
-        return self._get_observation(), reward, done, {}
+        return reward, done
 
     def _advance_vehicles(self):
         pedestrian_collision = False
@@ -244,6 +254,7 @@ class JaywalkEnv(gym.Env):
 
     def _get_observation(self):
         grid = np.zeros(self.grid_shape, dtype=np.int32)
+
         grid[self.agent_position[0], self.agent_position[1]] = self.agent_representation
 
         for lane_idx, lane_info in self.lanes.items():
