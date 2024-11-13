@@ -22,6 +22,7 @@ class EnvParams:
     )
     max_reward: int = 100
     death_reward: int = -500
+    wait_reward: int = -2
 
 
 class JaywalkEnv(gym.Env):
@@ -76,8 +77,13 @@ class JaywalkEnv(gym.Env):
 
         self.max_reward = params.max_reward
         self.death_reward = params.death_reward
+        self.wait_reward = params.wait_reward
 
         self.time_steps = 0
+
+        # self.received_bonus = {
+        #     i: False for i in range(1, self.grid_shape[0] - 1) if i % 3 == 0
+        # }
 
     def reset(self):
         # Reset agent position
@@ -94,6 +100,10 @@ class JaywalkEnv(gym.Env):
         self.light_timer = 0
 
         self.time_steps = 0
+
+        # self.received_bonus = {
+        #     i: False for i in range(1, self.grid_shape[0] - 1) if i % 3 == 0
+        # }
 
         for _ in range(10):
             self._environment_movement()
@@ -122,6 +132,10 @@ class JaywalkEnv(gym.Env):
 
         reward, done = self._environment_movement()
 
+        # if self.received_bonus.get(self.agent_position[0]) == False:
+        #     reward += 1
+        #     self.received_bonus[self.agent_position[0]] = True
+
         self.time_steps += 1
 
         return self._get_observation(), reward, done, {}
@@ -129,7 +143,7 @@ class JaywalkEnv(gym.Env):
     def _environment_movement(self):
         pedestrian_collision = self._advance_vehicles()
 
-        reward = 0
+        reward = self.wait_reward
         done = False
 
         if pedestrian_collision:
