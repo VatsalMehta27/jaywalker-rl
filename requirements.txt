@@ -2,3 +2,5 @@ numpy
 gymnasium
 matplotlib
 pre-commit
+torch
+opencv-python
