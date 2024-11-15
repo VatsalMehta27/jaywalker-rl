@@ -3,7 +3,7 @@ from gymnasium import Env
 from collections import defaultdict
 import numpy as np
 
-from agents.agent import Agent, TrainingResult
+from src.agents.agent import Agent, TrainingResult
 
 
 class QLearning(Agent):

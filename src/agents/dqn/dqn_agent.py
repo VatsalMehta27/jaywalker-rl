@@ -5,10 +5,10 @@ from gymnasium import Env
 import tqdm
 
 
-from agents.dqn.replay_buffer import ReplayBuffer
-from agents.dqn.dqn import DQN
-from utils.epsilon_schedules.exponential_schedule import ExponentialSchedule
-from utils.epsilon_schedules.linear_schedule import LinearSchedule
+from src.agents.dqn.replay_buffer import ReplayBuffer
+from src.agents.dqn.dqn import DQN
+from src.utils.epsilon_schedules.exponential_schedule import ExponentialSchedule
+from src.utils.epsilon_schedules.linear_schedule import LinearSchedule
 
 
 # customized weight initialization
