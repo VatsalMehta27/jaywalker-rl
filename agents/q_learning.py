@@ -1,4 +1,4 @@
-import json
+import pickle
 from gymnasium import Env
 from collections import defaultdict
 import numpy as np
@@ -94,20 +94,21 @@ class QLearning(Agent):
 
         return TrainingResult(returns=returns, timesteps=timesteps, loss=[])
 
-    def save(self, filepath: str = "qlearning_qvalue.json") -> None:
-        with open(filepath, "w") as file:
-            json.dump(dict(self.Q), file)
+    def save(self, filepath: str = "qlearning_qvalue.pkl") -> None:
+        with open(filepath, "wb") as file:
+            pickle.dump(dict(self.Q), file)
 
         print(f"Saved to {filepath}!")
 
-    def load(self, filepath: str = "qlearning_qvalue.json") -> None:
-        if filepath.endswith(".json"):
-            with open(filepath, "r") as file:
-                q_values = json.load(file)
+    def load(self, filepath: str = "qlearning_qvalue.pkl") -> None:
+        if filepath.endswith(".pkl"):
+            with open(filepath, "rb") as file:
+                q_values = pickle.load(file)
                 self.Q = defaultdict(
                     lambda: [0 for _ in range(self.action_num)], q_values
                 )
 
             print(f"Loaded values from {filepath}!")
+            return
 
         raise Exception("Invalid file type.")
