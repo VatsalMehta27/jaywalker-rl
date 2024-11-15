@@ -92,7 +92,9 @@ class QLearning(Agent):
             returns.append(G)
             timesteps.append(self.env.time_steps)
 
-        return TrainingResult(returns=returns, timesteps=timesteps, loss=[])
+        return TrainingResult(
+            returns=np.array(returns), timesteps=np.array(timesteps), loss=np.array([])
+        )
 
     def save(self, filepath: str = "qlearning_qvalue.pkl") -> None:
         with open(filepath, "wb") as file:

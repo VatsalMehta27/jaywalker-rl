@@ -11,9 +11,9 @@ import cv2
 
 @dataclass
 class TrainingResult:
-    returns: list[int]
-    timesteps: list[int]
-    loss: list[int]
+    returns: np.ndarray[int]
+    timesteps: np.ndarray[int]
+    loss: np.ndarray[int]
 
 
 class Agent(ABC):
@@ -101,7 +101,7 @@ class Agent(ABC):
         # Get the frame size from the first frame
         height, width, _ = frames[0].shape
 
-        for i, frame in enumerate(frames):
+        for frame in frames:
             assert frame.shape == (height, width, 3), "Inconsistent frame size"
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # codec for mp4 format
@@ -121,3 +121,66 @@ class Agent(ABC):
     @abstractmethod
     def load(self, filepath: str) -> None:
         pass
+
+    @staticmethod
+    def _moving_average(data: np.ndarray, window_size: int = 50):
+        """Smooths 1-D data array using a moving average.
+
+        Args:
+            data: 1-D numpy.array
+            window_size: Size of the smoothing window
+
+        Returns:
+            smooth_data: A 1-d numpy.array with the same size as data
+        """
+        if len(data) == 0:
+            # Return an empty array if the input data is empty
+            return np.array([])
+
+        assert data.ndim == 1
+
+        kernel = np.ones(window_size)
+        smooth_data = np.convolve(data, kernel) / np.convolve(
+            np.ones_like(data), kernel
+        )
+
+        return smooth_data[: -window_size + 1]
+
+    @staticmethod
+    def plot_training_result(training_result: TrainingResult) -> None:
+        smooth_returns = Agent._moving_average(training_result.returns)
+        smooth_timesteps = Agent._moving_average(training_result.timesteps)
+        smooth_loss = Agent._moving_average(training_result.loss)
+
+        # Create a figure with 3 subplots: one for returns, one for timesteps, and one for loss
+        fig, axs = plt.subplots(3, 1, figsize=(10, 12))
+
+        # Plot returns in the first subplot
+        axs[0].plot(training_result.returns, label="Returns")
+        axs[0].plot(smooth_returns, label="Smoothed Returns", linestyle="--")
+        axs[0].set_title("Training Returns")
+        axs[0].set_xlabel("Episodes")
+        axs[0].set_ylabel("Return")
+        axs[0].legend()
+
+        # Plot timesteps in the second subplot
+        axs[1].plot(training_result.timesteps, label="Timesteps")
+        axs[1].plot(smooth_timesteps, label="Smoothed Timesteps", linestyle="--")
+        axs[1].set_title("Timesteps")
+        axs[1].set_xlabel("Episodes")
+        axs[1].set_ylabel("Timesteps")
+        axs[1].legend()
+
+        # Plot loss in the third subplot
+        axs[2].plot(training_result.loss, label="Loss")
+        axs[2].plot(smooth_loss, label="Smoothed Loss", linestyle="--")
+        axs[2].set_title("Loss")
+        axs[2].set_xlabel("Episodes")
+        axs[2].set_ylabel("Loss")
+        axs[2].legend()
+
+        # Adjust layout for better spacing between subplots
+        plt.tight_layout()
+
+        # Show the plot
+        plt.show()
