@@ -2,11 +2,12 @@ import torch
 from torch import nn
 import numpy as np
 from gymnasium import Env
-from tqdm import tqdm
+import tqdm
 
-from algorithms.dqn.linear_schedule import LinearSchedule
-from algorithms.dqn.replay_buffer import ReplayBuffer
-from dqn import DQN
+from agents.dqn.exponential_schedule import ExponentialSchedule
+from agents.dqn.linear_schedule import LinearSchedule
+from agents.dqn.replay_buffer import ReplayBuffer
+from agents.dqn.dqn import DQN
 
 
 # customized weight initialization
@@ -36,6 +37,12 @@ class DQNAgent:
 
         if params["scheduler_type"] == "linear":
             self.epsilon_scheduler = LinearSchedule(
+                start_value=params["epsilon_start_value"],
+                end_value=params["epsilon_end_value"],
+                duration=params["epsilon_duration"],
+            )
+        elif params["scheduler_type"] == "exponential":
+            self.epsilon_scheduler = ExponentialSchedule(
                 start_value=params["epsilon_start_value"],
                 end_value=params["epsilon_end_value"],
                 duration=params["epsilon_duration"],
@@ -93,12 +100,15 @@ class DQNAgent:
 
         return self.get_greedy_action(state)
 
-    def get_greedy_action(self, state):
-        state = self._arr_to_tensor(state).view(1, -1)
+    def get_greedy_action(self, state, rollout=False):
+        state = self._arr_to_tensor(state).flatten().view(1, -1)
 
         with torch.no_grad():
             q_values = self.behavior_policy_net(state)
             action = q_values.max(dim=1)[1].item()
+            if rollout:
+                print(q_values)
+                print(action)
 
         return self.action_space[int(action)]
 
@@ -108,21 +118,21 @@ class DQNAgent:
         batch_data_tensor = self._batch_to_tensor(batch_data)
 
         # get the transition data
-        obs_tensor = batch_data_tensor["obs"]
+        state_tensor = batch_data_tensor["state"]
         actions_tensor = batch_data_tensor["action"]
-        next_obs_tensor = batch_data_tensor["next_obs"]
+        next_state_tensor = batch_data_tensor["next_state"]
         rewards_tensor = batch_data_tensor["reward"]
         dones_tensor = batch_data_tensor["done"]
 
         # compute the q value estimation using the behavior network
-        q_value_estimation = self.behavior_policy_net(obs_tensor).gather(
+        q_value_estimation = self.behavior_policy_net(state_tensor).gather(
             1, actions_tensor
         )
 
         # compute the TD target using the target network
         with torch.no_grad():
             max_q_s_prime = (
-                self.target_policy_net(next_obs_tensor).max(dim=1)[0].reshape(-1, 1)
+                self.target_policy_net(next_state_tensor).max(dim=1)[0].reshape(-1, 1)
             )
             td_target = (
                 rewards_tensor
@@ -130,7 +140,7 @@ class DQNAgent:
             )
 
         # compute the loss
-        td_loss = self.loss(q_value_estimation, td_target)
+        td_loss = self.loss(q_value_estimation, td_target) / self.params["batch_size"]
 
         # minimize the loss
         self.optimizer.zero_grad()
@@ -153,26 +163,28 @@ class DQNAgent:
     def _batch_to_tensor(self, batch_data):
         # store the tensor
         batch_data_tensor = {
-            "obs": [],
+            "state": [],
             "action": [],
             "reward": [],
-            "next_obs": [],
+            "next_state": [],
             "done": [],
         }
+
         # get the numpy arrays
-        obs_arr, action_arr, reward_arr, next_obs_arr, done_arr = batch_data
+        state_arr, action_arr, reward_arr, next_state_arr, done_arr = batch_data
+        batch_size = self.params["batch_size"]
         # convert to tensors
-        batch_data_tensor["obs"] = torch.tensor(obs_arr, dtype=torch.float32).to(
-            self.device
-        )
+        batch_data_tensor["state"] = torch.tensor(
+            state_arr.reshape(batch_size, -1), dtype=torch.float32
+        ).to(self.device)
         batch_data_tensor["action"] = (
             torch.tensor(action_arr).long().view(-1, 1).to(self.device)
         )
         batch_data_tensor["reward"] = (
             torch.tensor(reward_arr, dtype=torch.float32).view(-1, 1).to(self.device)
         )
-        batch_data_tensor["next_obs"] = torch.tensor(
-            next_obs_arr, dtype=torch.float32
+        batch_data_tensor["next_state"] = torch.tensor(
+            next_state_arr.reshape(batch_size, -1), dtype=torch.float32
         ).to(self.device)
         batch_data_tensor["done"] = (
             torch.tensor(done_arr, dtype=torch.float32).view(-1, 1).to(self.device)
@@ -182,12 +194,14 @@ class DQNAgent:
 
     def run(self):
         episode_timestep = 0
+        train_rewards = []
         rewards = []
         train_returns = []
         train_loss = []
 
         # reset the environment
         state, _ = self.env.reset()
+        state = state["world_grid"]
 
         # start training
         pbar = tqdm.trange(self.params["total_training_time_step"])
@@ -200,11 +214,12 @@ class DQNAgent:
             action = self.get_action(state, eps_t)
 
             # step in the environment
-            next_obs, reward, done, _, _ = self.env.step(action)
+            next_state, reward, done, _, _ = self.env.step(action)
+            next_state = next_state["world_grid"]
 
             # add to the buffer
             self.replay_buffer.add(
-                state, self.env.action_names.index(action), reward, next_obs, done
+                state, self.action_space.index(action), reward, next_state, done
             )
             rewards.append(reward)
 
@@ -224,6 +239,7 @@ class DQNAgent:
 
                 # store the return
                 train_returns.append(G)
+                train_rewards.append(rewards)
                 episode_idx = len(train_returns)
 
                 # print the information
@@ -236,16 +252,14 @@ class DQNAgent:
                 # reset the environment
                 episode_timestep, rewards = 0, []
                 state, _ = self.env.reset()
+                state = state["world_grid"]
             else:
                 # increment
-                state = next_obs
+                state = next_state
                 episode_timestep += 1
 
             # update the behavior model
             if np.mod(total_timestep, self.params["freq_update_behavior_policy"]) == 0:
-                """CODE HERE:
-                Update the behavior policy network
-                """
                 sample_batch = self.replay_buffer.sample_batch(
                     self.params["batch_size"]
                 )
@@ -254,9 +268,6 @@ class DQNAgent:
 
             # update the target model
             if np.mod(total_timestep, self.params["freq_update_target_policy"]) == 0:
-                """CODE HERE:
-                Update the target policy network
-                """
                 self.update_target_policy()
 
-        return train_returns, train_loss
+        return train_rewards, train_returns, train_loss

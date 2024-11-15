@@ -79,7 +79,7 @@ class ReplayBuffer(object):
         # indices = [
         #     np.random.randint(0, len(self._data_buffer)) for _ in range(batch_size)
         # ]
-        indices = np.random.choice(self.size, batch_size, replace=False)
+        indices = np.random.choice(len(self._data_buffer), batch_size, replace=False)
         return self._encode_sample(indices)
 
     def populate(self, env, num_steps):
@@ -89,13 +89,18 @@ class ReplayBuffer(object):
         :param num_steps: Number of steps to populate the replay memory
         """
         state, _ = env.reset()
+        state = state["world_grid"]
+
+        action_space = [-1, 0, 1]
 
         for _ in range(num_steps):
             action = env.action_space.sample()
             next_state, reward, done, _, _ = env.step(action)
-            self.add(state, action, reward, next_state, done)
+            next_state = next_state["world_grid"]
+            self.add(state, action_space.index(action), reward, next_state, done)
 
             if done:
                 state, _ = env.reset()
+                state = state["world_grid"]
             else:
                 state = next_state
