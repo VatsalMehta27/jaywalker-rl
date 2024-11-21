@@ -1,6 +1,6 @@
 import numpy as np
 
-from utils.epsilon_schedules.epsilon_schedule import EpsilonSchedule
+from src.utils.epsilon_schedules.epsilon_schedule import EpsilonSchedule
 
 
 class ExponentialSchedule(EpsilonSchedule):

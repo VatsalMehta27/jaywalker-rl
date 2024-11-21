@@ -1,4 +1,4 @@
-from utils.epsilon_schedules.epsilon_schedule import EpsilonSchedule
+from src.utils.epsilon_schedules.epsilon_schedule import EpsilonSchedule
 
 
 class LinearSchedule(EpsilonSchedule):
@@ -9,6 +9,6 @@ class LinearSchedule(EpsilonSchedule):
 
     def get_value(self, step: int) -> float:
         # logic: if time > duration, use the end value, else use the scheduled value
-        return self._start_value + self._schedule_amount * min(
-            1.0, step * 1.0 / self._duration
+        return self.start_value + self._schedule_amount * min(
+            1.0, step * 1.0 / self.duration
         )
