@@ -91,13 +91,11 @@ class ReplayBuffer(object):
         state, _ = env.reset()
         state = state["world_grid"]
 
-        action_space = [-1, 0, 1]
-
         for _ in range(num_steps):
             action = env.action_space.sample()
             next_state, reward, done, _, _ = env.step(action)
             next_state = next_state["world_grid"]
-            self.add(state, action_space.index(action), reward, next_state, done)
+            self.add(state, action, reward, next_state, done)
 
             if done:
                 state, _ = env.reset()

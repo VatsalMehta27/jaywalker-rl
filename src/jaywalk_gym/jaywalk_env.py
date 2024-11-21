@@ -47,7 +47,7 @@ class JaywalkEnv(gym.Env):
         self.actions = {-1: "backward", 0: "wait", 1: "forward"}
 
         # Action space: using discrete integers
-        self.action_space = spaces.Discrete(len(self.actions), start=-1)
+        self.action_space = spaces.Discrete(len(self.actions), start=0)
         self.observation_space = spaces.Dict(
             {
                 "traffic_light": spaces.Discrete(3),  # 0: RED, 1: YELLOW, 2: GREEN
@@ -85,7 +85,7 @@ class JaywalkEnv(gym.Env):
             i: False for i in range(1, self.grid_shape[0] - 1) if i % 3 == 0
         }
 
-    def reset(self):
+    def reset(self, seed=None):
         # Reset agent position
         self.agent_position = list(self.agent_start_position)
 
@@ -119,22 +119,23 @@ class JaywalkEnv(gym.Env):
 
     def step(self, action):
         match action:
-            case 1:
+            case 2:
                 self.agent_position[0] = min(
                     self.agent_position[0] + 1, self.grid_shape[0]
                 )
-            case -1:
-                self.agent_position[0] = max(self.agent_position[0] - 1, 0)
             case 0:
+                self.agent_position[0] = max(self.agent_position[0] - 1, 0)
+            case 1:
                 pass
             case _:
+                print(action)
                 raise Exception("Invalid action.")
 
         reward, done = self._environment_movement()
 
-        if not self.received_bonus.get(self.agent_position[0]):
-            reward += 10
-            self.received_bonus[self.agent_position[0]] = True
+        # if not self.received_bonus.get(self.agent_position[0]):
+        #     reward += 1
+        #     self.received_bonus[self.agent_position[0]] = True
 
         self.time_steps += 1
 
