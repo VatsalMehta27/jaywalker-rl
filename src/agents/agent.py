@@ -45,6 +45,7 @@ class Agent(ABC):
         self,
         render_mode: Literal["ascii", "human"] = "human",
         video_filename: Optional[str] = "policy_rollout.mp4",
+        timeout: int = 250,
     ):
         matplotlib_backend = matplotlib.get_backend()
 
@@ -58,7 +59,7 @@ class Agent(ABC):
             # Temporarily switch to a non-interactive backend to prevent plots from showing
             matplotlib.use("Agg")
 
-        while not done:
+        while not done and self.env.time_steps < timeout:
             self.env.render(mode=render_mode)
             action = self.get_greedy_action(state["world_grid"])
             state, reward, done, _, _ = self.env.step(action)
