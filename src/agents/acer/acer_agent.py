@@ -2,6 +2,7 @@ from gymnasium import Env
 import numpy as np
 import torch
 from torch import nn
+from tqdm import tqdm
 from src.agents.acer.network import ActorCriticNetwork
 from src.agents.acer.replay_buffer import TrajectoryBuffer
 from src.agents.agent import Agent, TrainingResult
@@ -75,15 +76,21 @@ class ACERAgent(Agent):
         return trajectory
 
     def get_action(self, state: np.ndarray) -> int:
-        _, action_probs = self._evaluate_state(state)
-        action = action_probs.multinomial(1).item()
-
-        return action
+        return super().get_action(state)
 
     def get_greedy_action(self, state: np.ndarray) -> int:
-        _, action_probs = self._evaluate_state(state)
+        return super().get_greedy_action(state)
 
-        return torch.argmax(action_probs)
+    # def get_action(self, state: np.ndarray) -> int:
+    #     _, action_probs = self._evaluate_state(state)
+    #     action = action_probs.multinomial(1).item()
+
+    #     return action
+
+    # def get_greedy_action(self, state: np.ndarray) -> int:
+    #     _, action_probs = self._evaluate_state(state)
+
+    #     return torch.argmax(action_probs)
 
     def load(self, filepath: str) -> None:
         return super().load(filepath)
@@ -135,7 +142,7 @@ class ACERAgent(Agent):
 
             # Critic loss
             critic_loss = self.loss(
-                cur_state_values,  # .gather(0, torch.tensor([action])),
+                cur_state_values.gather(0, torch.tensor([action])),
                 q_retrace.unsqueeze(0),
             )
 
@@ -167,18 +174,22 @@ class ACERAgent(Agent):
         all_losses = []
         trajectory_lengths = []
 
-        for _ in range(episodes):
-            G, losses, trajectory_length = self._acer(run_on_policy=True)
-            all_returns.append(G)
-            all_losses.append(np.mean(losses))
-            trajectory_lengths.append(trajectory_length)
-
-            n = np.random.poisson(self.replay_ratio)
-
-            for _ in range(n):
-                G, losses, trajectory_length = self._acer(run_on_policy=False)
+        # Create a tqdm progress bar
+        with tqdm(range(episodes), desc="Training", unit="episode") as pbar:
+            for episode in pbar:
+                G, losses, trajectory_length = self._acer(run_on_policy=True)
                 all_returns.append(G)
                 all_losses.append(np.mean(losses))
+                trajectory_lengths.append(trajectory_length)
+
+                pbar.set_postfix(trajectory_length=trajectory_length)
+
+                n = np.random.poisson(self.replay_ratio)
+
+                for _ in range(n):
+                    G, losses, trajectory_length = self._acer(run_on_policy=False)
+                    all_returns.append(G)
+                    all_losses.append(np.mean(losses))
 
         return TrainingResult(
             returns=np.array(all_returns),
