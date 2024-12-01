@@ -44,7 +44,7 @@ class JaywalkEnv(gym.Env):
         self.agent_position = list(self.agent_start_position)
         self.agent_representation = 100
 
-        self.actions = {-1: "backward", 0: "wait", 1: "forward"}
+        self.actions = {0: "backward", 1: "wait", 2: "forward"}
 
         # Action space: using discrete integers
         self.action_space = spaces.Discrete(len(self.actions), start=0)
