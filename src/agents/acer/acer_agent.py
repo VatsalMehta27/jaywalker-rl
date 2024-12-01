@@ -59,7 +59,6 @@ class ACERAgent(Agent):
             self.update_normalization(state)
 
             _, action_probs = self._evaluate_state(state)
-            # print(action_probs)
             action = action_probs.multinomial(1).item()
             next_state, reward, terminated, _, _ = self.env.step(action)
             next_state = next_state["world_grid"]
@@ -76,21 +75,15 @@ class ACERAgent(Agent):
         return trajectory
 
     def get_action(self, state: np.ndarray) -> int:
-        return super().get_action(state)
+        _, action_probs = self._evaluate_state(state)
+        action = action_probs.multinomial(1).item()
+
+        return action
 
     def get_greedy_action(self, state: np.ndarray) -> int:
-        return super().get_greedy_action(state)
+        _, action_probs = self._evaluate_state(state)
 
-    # def get_action(self, state: np.ndarray) -> int:
-    #     _, action_probs = self._evaluate_state(state)
-    #     action = action_probs.multinomial(1).item()
-
-    #     return action
-
-    # def get_greedy_action(self, state: np.ndarray) -> int:
-    #     _, action_probs = self._evaluate_state(state)
-
-    #     return torch.argmax(action_probs)
+        return torch.argmax(action_probs)
 
     def load(self, filepath: str) -> None:
         return super().load(filepath)
@@ -120,16 +113,14 @@ class ACERAgent(Agent):
             q_retrace = reward + self.gamma * q_retrace * (1 - done)
 
             cur_state_values, cur_action_probs = self._evaluate_state(state)
-            v_value = torch.sum(
-                cur_state_values * cur_action_probs
-            )  # Avoid using `dot`
+            v_value = torch.sum(cur_state_values * cur_action_probs)
 
             # Compute importance weights
             importance_weights = cur_action_probs / action_probs
             rho_i = torch.clamp(importance_weights[action], max=1.0)
 
             # Actor loss
-            log_prob_action = torch.log(cur_action_probs[action] + 1e-8)  # Avoid log(0)
+            log_prob_action = torch.log(cur_action_probs[action] + 1e-8)
             actor_loss = rho_i * (q_retrace - v_value) * log_prob_action
 
             # Bias correction
