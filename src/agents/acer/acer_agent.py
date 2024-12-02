@@ -86,10 +86,11 @@ class ACERAgent(Agent):
         return torch.argmax(action_probs)
 
     def load(self, filepath: str) -> None:
-        return super().load(filepath)
+        state_dict = torch.load(filepath, weights_only=True)
+        self.actor_critic.load_state_dict(state_dict=state_dict)
 
     def save(self, filepath: str) -> None:
-        return super().save(filepath)
+        torch.save(self.actor_critic.state_dict(), filepath)
 
     def _acer(self, run_on_policy=True):
         if run_on_policy:
