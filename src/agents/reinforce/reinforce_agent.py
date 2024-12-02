@@ -176,9 +176,8 @@ class REINFORCEAgent(Agent):
         )
 
     def load(self, filepath: str) -> None:
-        """Load the model parameters."""
-        return super().load(filepath)
+        state_dict = torch.load(filepath, weights_only=True)
+        self.policy.load_state_dict(state_dict=state_dict)
 
     def save(self, filepath: str) -> None:
-        """Save the model parameters."""
-        return super().save(filepath)
+        torch.save(self.policy.state_dict(), filepath)
