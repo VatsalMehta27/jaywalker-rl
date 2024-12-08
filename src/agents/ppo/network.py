@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 from torch import nn
 
@@ -41,7 +40,4 @@ class NeuralNetwork(nn.Module):
                 dimensions as the `states`, and A is the dimensionality of the
                 action-space. This represents the Q values Q(s, .)
         """
-        if isinstance(states, np.ndarray):
-            states = torch.tensor(states, dtype=torch.float)
-
         return self.network(states)
