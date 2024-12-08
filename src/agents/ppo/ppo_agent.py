@@ -14,40 +14,24 @@ class PPOAgent(Agent):
     def __init__(self, env: Env, params: dict):
         super().__init__(env, params)
 
-        self.action_dim = params["action_dim"]
-        self.state_dim = params["state_dim"]
-
         # executable actions
         self.action_space = params["action_space"]
 
-        self.actor = NeuralNetwork(
+        self.actor_critic = NeuralNetwork(
             state_dim=self.state_dim,
-            output_dim=self.action_dim,
+            action_dim=self.action_dim,
             num_layers=params["num_layers"],
             hidden_dim=params["hidden_dim"],
         )
-        print(self.actor)
-        self.actor.apply(customized_weights_init)
-
-        self.critic = NeuralNetwork(
-            state_dim=self.state_dim,
-            output_dim=1,
-            num_layers=params["num_layers"],
-            hidden_dim=params["hidden_dim"],
-        )
-        print(self.critic)
-        self.critic.apply(customized_weights_init)
+        print(self.actor_critic)
+        self.actor_critic.apply(customized_weights_init)
 
         self.device = torch.device(params["device"])
-        self.actor.to(self.device)
-        self.critic.to(self.device)
+        self.actor_critic.to(self.device)
 
         # optimizer
-        self.critic_optimizer = torch.optim.Adam(
-            self.critic.parameters(), lr=params["learning_rate"]
-        )
-        self.actor_optimizer = torch.optim.Adam(
-            self.actor.parameters(), lr=params["learning_rate"]
+        self.actor_critic_optimizer = torch.optim.Adam(
+            self.actor_critic.parameters(), lr=params["learning_rate"]
         )
 
         # loss
@@ -57,36 +41,40 @@ class PPOAgent(Agent):
         self.batch_size = params["batch_size"]
         self.gamma = params["gamma"]
         self.epochs_per_iteration = params["epochs_per_iteration"]
+        self.entropy_weight = params["entropy_weight"]
 
     def get_action(self, state: np.ndarray) -> int:
         action, _ = self._get_action_prob(state)
+
         return action
 
-    def _get_action_prob(self, state: np.ndarray) -> tuple[int, float]:
+    def _get_action_prob(self, state: np.ndarray) -> tuple[int, float, float]:
         state_tensor = torch.tensor(state).float().view(1, -1)
 
-        logits = self.actor(state_tensor)
-        # distribution = Categorical(logits=logits)
-        distribution = Categorical(probs=torch.softmax(logits, dim=-1))
+        _, action_probs = self.actor_critic(state_tensor)
+
+        distribution = Categorical(probs=action_probs)
         action = distribution.sample()
         log_prob = distribution.log_prob(action)
+        entropy = distribution.entropy()
 
-        return self.action_space[action.item()], log_prob.detach()
+        return self.action_space[action.item()], log_prob.detach(), entropy.detach()
 
     def get_greedy_action(self, state: np.ndarray) -> int:
         state_tensor = torch.tensor(state).float().view(1, -1)
 
-        logits = self.actor(state_tensor).detach()
+        _, action_probs = self.actor_critic(state_tensor)
 
-        return self.action_space[logits.max(dim=1)[1].item()]
+        return self.action_space[torch.argmax(action_probs.detach()).item()]
 
     def _get_batch_log_prob(self, states: torch.tensor, actions: torch.tensor):
-        logits = self.actor(states)
-        # distribution = Categorical(logits=logits)
-        distribution = Categorical(probs=torch.softmax(logits, dim=-1))
-        log_probs = distribution.log_prob(actions.squeeze(dim=1))
+        _, action_probs = self.actor_critic(states)
 
-        return log_probs.unsqueeze(dim=1)
+        distribution = Categorical(probs=action_probs)
+        log_probs = distribution.log_prob(actions.squeeze(dim=1))
+        entropies = distribution.entropy()
+
+        return log_probs.unsqueeze(dim=1), entropies
 
     def train(self, training_steps) -> TrainingResult:
         train_returns = []
@@ -102,26 +90,30 @@ class PPOAgent(Agent):
             states_tensor = batch_data_tensor["state"]
             actions_tensor = batch_data_tensor["action"]
             log_probs_tensor = batch_data_tensor["log_prob"]
+            # entropies_tensor = batch_data_tensor["entropy"]
             returns_tensor = batch_data_tensor["return"]
 
             # print(states_tensor.shape)
             # print(actions_tensor.shape)
             # print(log_probs_tensor.shape)
+            # print(entropies_tensor.shape)
             # print(returns_tensor.shape)
 
             train_returns.extend(returns_tensor.numpy().flatten())
 
-            # with torch.no_grad():
-
-            for _ in range(self.epochs_per_iteration):
-                V_values = self.critic(states_tensor)
-                # TODO: Try GAE?
+            with torch.no_grad():
+                V_values, _ = self.actor_critic(states_tensor)
                 advantage = returns_tensor - V_values.detach()
+                # target_val = returns_tensor + gamma * next_state_values
 
                 normalized_advantage = (advantage - advantage.mean()) / (
                     advantage.std() + 1e-8
                 )
-                current_log_probs = self._get_batch_log_prob(
+
+            for _ in range(self.epochs_per_iteration):
+                V_values, _ = self.actor_critic(states_tensor)
+
+                current_log_probs, _ = self._get_batch_log_prob(
                     states_tensor, actions_tensor
                 )
 
@@ -133,17 +125,19 @@ class PPOAgent(Agent):
                 )
 
                 actor_loss = (-clipped_loss).mean()
-                critic_loss = self.loss(V_values, returns_tensor)
+                critic_loss = self.loss(returns_tensor, V_values)
 
-                self.actor_optimizer.zero_grad()
-                actor_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=0.5)
-                self.actor_optimizer.step()
+                total_loss = (
+                    actor_loss + 0.5 * critic_loss
+                    # + self.entropy_weight * -torch.mean(current_entropies)
+                )
 
-                self.critic_optimizer.zero_grad()
-                critic_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=0.5)
-                self.critic_optimizer.step()
+                self.actor_critic_optimizer.zero_grad()
+                total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    self.actor_critic.parameters(), max_norm=0.5
+                )
+                self.actor_critic_optimizer.step()
 
                 train_actor_losses.append(actor_loss.detach().item())
                 train_critic_losses.append(critic_loss.detach().item())
@@ -155,7 +149,8 @@ class PPOAgent(Agent):
         )
 
     def _rollout(self, num_steps):
-        state_list, actions_list, log_probs_list, returns_list = (
+        state_list, actions_list, log_probs_list, entropies_list, returns_list = (
+            [],
             [],
             [],
             [],
@@ -168,31 +163,35 @@ class PPOAgent(Agent):
         episode_rewards = []
 
         for _ in range(num_steps):
-            action, prob = self._get_action_prob(state)
+            action, log_prob, entropy = self._get_action_prob(state)
             next_state, reward, done, _, _ = self.env.step(action)
             next_state = next_state["world_grid"]
 
             state_list.append(np.asarray(state))
             actions_list.append(np.asarray(action))
-            log_probs_list.append(np.asarray(prob))
+            log_probs_list.append(np.asarray(log_prob))
+            entropies_list.append(np.asarray(entropy))
             episode_rewards.append(reward)
 
             if done:
                 state, _ = self.env.reset()
                 state = state["world_grid"]
 
-                returns_list.extend(self._discount_rewards(episode_rewards))
+                returns_list.extend(
+                    self._discount_rewards(episode_rewards, terminal=True)
+                )
                 episode_rewards = []
             else:
                 state = next_state
 
         if episode_rewards:
-            returns_list.extend(self._discount_rewards(episode_rewards))
+            returns_list.extend(self._discount_rewards(episode_rewards, terminal=False))
 
         batch = (
             np.array(state_list),
             np.array(actions_list),
             np.array(log_probs_list),
+            np.array(entropies_list),
             np.array(returns_list),
         )
 
@@ -220,11 +219,12 @@ class PPOAgent(Agent):
             "state": [],
             "action": [],
             "log_prob": [],
+            "entropy": [],
             "return": [],
         }
 
         # get the numpy arrays
-        state_arr, action_arr, log_prob_arr, reward_arr = batch_data
+        state_arr, action_arr, log_prob_arr, entropy_arr, return_arr = batch_data
         batch_size = self.params["batch_size"]
         # convert to tensors
         batch_data_tensor["state"] = torch.tensor(
@@ -236,8 +236,11 @@ class PPOAgent(Agent):
         batch_data_tensor["log_prob"] = (
             torch.tensor(log_prob_arr, dtype=torch.float32).view(-1, 1).to(self.device)
         )
+        batch_data_tensor["entropy"] = (
+            torch.tensor(entropy_arr, dtype=torch.float32).view(-1, 1).to(self.device)
+        )
         batch_data_tensor["return"] = (
-            torch.tensor(reward_arr, dtype=torch.float32).view(-1, 1).to(self.device)
+            torch.tensor(return_arr, dtype=torch.float32).view(-1, 1).to(self.device)
         )
 
         return batch_data_tensor
