@@ -35,10 +35,5 @@ class TrajectoryBuffer(object):
         """Args:
         batch_size (int): size of the sampled batch data.
         """
-        # sample indices with replaced
-        # indices = [
-        #     np.random.randint(0, len(self._data_buffer)) for _ in range(batch_size)
-        # ]
-        index = np.random.choice(len(self._data_buffer), replace=False)
-        data = self._data_buffer[index]
-        return data
+        index = np.random.randint(len(self._data_buffer))
+        return self._data_buffer[index]

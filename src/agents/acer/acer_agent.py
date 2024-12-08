@@ -2,6 +2,7 @@ from gymnasium import Env
 import numpy as np
 import torch
 from torch import nn
+from torch.distributions import Categorical
 from tqdm import tqdm
 from src.agents.acer.network import ActorCriticNetwork
 from src.agents.acer.replay_buffer import TrajectoryBuffer
@@ -12,7 +13,7 @@ class ACERAgent(Agent):
     def __init__(self, env: Env, params: dict):
         super().__init__(env, params)
 
-        # environment parameters
+        # Environment and training parameters
         self.device = params["device"]
         self.timeout = params["timeout"]
         self.replay_ratio = params["replay_ratio"]
@@ -20,171 +21,155 @@ class ACERAgent(Agent):
         self.clip = params["clip"]
         self.kl_beta = params["kl_beta"]
 
-        # executable actions
-        self.action_space = params["action_space"]
-
+        # Network and optimizer
         self.actor_critic = ActorCriticNetwork(
             params["state_dim"], params["action_dim"], params["hidden_dim"]
-        )
-
-        # optimizer
+        ).to(self.device)
         self.optimizer = torch.optim.Adam(
             self.actor_critic.parameters(), lr=params["learning_rate"]
         )
-        # loss
-        self.loss = nn.MSELoss()
+        self.loss_fn = nn.MSELoss()
 
         self.trajectory_buffer = TrajectoryBuffer(params["replay_buffer_size"])
 
-    def _evaluate_state(self, state: np.ndarray) -> tuple[float, int, float]:
-        normalized_state = self.normalize_state(state)
+    def _evaluate_state(self, state: np.ndarray):
+        """Evaluate the state to get value and action probabilities."""
         state_tensor = (
-            torch.tensor(normalized_state).float().view(1, -1).to(self.device)
+            torch.tensor(state, dtype=torch.float32).view(1, -1).to(self.device)
         )
-
         state_value, action_probs = self.actor_critic(state_tensor)
 
-        return state_value.view(-1), action_probs.view(-1)
+        return state_value.squeeze(), action_probs.squeeze()
 
     def _rollout(self):
-        """Perform one rollout to collect data."""
+        """Perform one episode rollout and collect data."""
         trajectory = []
-
         state, _ = self.env.reset()
         done = False
-        state = state["world_grid"]
 
         while not done:
-            # Update normalization with the current state
-            self.update_normalization(state)
-
             _, action_probs = self._evaluate_state(state)
-            action = action_probs.multinomial(1).item()
-            next_state, reward, terminated, _, _ = self.env.step(action)
-            next_state = next_state["world_grid"]
+            action = Categorical(probs=action_probs).sample().item()
 
-            truncated = self.env.time_steps >= self.timeout
-            done = terminated or truncated
+            next_state, reward, terminated, _, _ = self.env.step(action)
+            done = terminated or (self.env.time_steps >= self.timeout)
 
             trajectory.append((state, action, reward, next_state, done, action_probs))
-
             state = next_state
 
         self.trajectory_buffer.add(trajectory)
 
         return trajectory
 
-    def get_action(self, state: np.ndarray) -> int:
-        _, action_probs = self._evaluate_state(state)
-        action = action_probs.multinomial(1).item()
-
-        return action
-
-    def get_greedy_action(self, state: np.ndarray) -> int:
-        _, action_probs = self._evaluate_state(state)
-
-        return torch.argmax(action_probs)
-
-    def load(self, filepath: str) -> None:
-        state_dict = torch.load(filepath, weights_only=True)
-        self.actor_critic.load_state_dict(state_dict=state_dict)
-
-    def save(self, filepath: str) -> None:
-        torch.save(self.actor_critic.state_dict(), filepath)
-
-    def _acer(self, run_on_policy=True):
-        if run_on_policy:
-            trajectory = self._rollout()
-        else:
-            trajectory = self.trajectory_buffer.sample_trajectory()
-
+    def _process_trajectory(self, trajectory):
+        """Process a trajectory for training."""
         q_retrace = torch.tensor(0.0, device=self.device)
         losses = []
         G = torch.tensor(0.0, device=self.device)
 
-        for state, action, reward, _, done, action_probs in reversed(trajectory):
-            # Convert data to tensors
-            reward = torch.tensor(reward, device=self.device, dtype=torch.float32)
-            done = torch.tensor(done, device=self.device, dtype=torch.float32)
-            action_probs = torch.tensor(
-                action_probs, device=self.device, dtype=torch.float32
-            )
+        for state, action, reward, _, done, old_action_probs in reversed(trajectory):
+            reward = torch.tensor(reward, dtype=torch.float32, device=self.device)
+            done = torch.tensor(done, dtype=torch.float32, device=self.device)
 
             G = reward + self.gamma * G * (1 - done)
             q_retrace = reward + self.gamma * q_retrace * (1 - done)
 
             cur_state_values, cur_action_probs = self._evaluate_state(state)
-            v_value = torch.sum(cur_state_values * cur_action_probs)
+            v_value = torch.sum(cur_action_probs * cur_state_values)
 
-            # Compute importance weights
-            importance_weights = cur_action_probs / action_probs
-            rho_i = torch.clamp(importance_weights[action], max=1.0)
+            # Importance sampling weights
+            importance_weights = cur_action_probs / (old_action_probs.detach() + 1e-8)
+            rho_i = torch.clamp(importance_weights[action], max=self.clip)
 
             # Actor loss
-            log_prob_action = torch.log(cur_action_probs[action] + 1e-8)
-            actor_loss = rho_i * (q_retrace - v_value) * log_prob_action
+            log_prob = torch.log(cur_action_probs[action] + 1e-8)
+            actor_loss = rho_i * (q_retrace - v_value.detach()) * log_prob
 
             # Bias correction
-            bias_correction = (
-                torch.clamp(1 - self.clip / (importance_weights + 1e-8), min=0.0)
-                * (cur_state_values - v_value.detach())
-                * action_probs
-                * torch.log(action_probs + 1e-8)
-            )
+            correction = (
+                (1 - self.clip / (importance_weights + 1e-8)).clamp(min=0.0)
+                * cur_state_values.detach()
+                * old_action_probs.detach()
+                * torch.log(old_action_probs.detach() + 1e-8)
+            ).sum()
 
             # Critic loss
-            critic_loss = self.loss(
-                cur_state_values.gather(0, torch.tensor([action])),
-                q_retrace.unsqueeze(0),
-            )
+            q_value = cur_state_values[action]
+            critic_loss = self.loss_fn(q_value, q_retrace)
 
             # KL divergence
             kl_divergence = torch.sum(
                 cur_action_probs
-                * (torch.log(cur_action_probs + 1e-8) - torch.log(action_probs + 1e-8))
+                * (
+                    torch.log(cur_action_probs + 1e-8)
+                    - torch.log(old_action_probs.detach() + 1e-8)
+                )
             )
 
             # Total loss
             total_loss = (
-                actor_loss
-                + bias_correction.sum()
-                + critic_loss
-                + self.kl_beta * kl_divergence
+                actor_loss + critic_loss + correction + self.kl_beta * kl_divergence
             )
 
             # Backpropagation
             self.optimizer.zero_grad()
-            total_loss.backward()
+            total_loss.backward(retain_graph=False)  # Ensure no graph retention
             self.optimizer.step()
 
-            losses.append(total_loss.detach().item())
+            losses.append(total_loss.item())
 
-        return G.item(), losses, len(trajectory)
+        return G.item(), np.mean(losses)
 
     def train(self, episodes) -> TrainingResult:
         all_returns = []
         all_losses = []
         trajectory_lengths = []
 
-        # Create a tqdm progress bar
         with tqdm(range(episodes), desc="Training", unit="episode") as pbar:
-            for episode in pbar:
-                G, losses, trajectory_length = self._acer(run_on_policy=True)
+            for _ in pbar:
+                # On-policy update
+                trajectory = self._rollout()
+                G, avg_loss = self._process_trajectory(trajectory)
+
                 all_returns.append(G)
-                all_losses.append(np.mean(losses))
-                trajectory_lengths.append(trajectory_length)
+                all_losses.append(avg_loss)
+                trajectory_lengths.append(len(trajectory))
 
-                pbar.set_postfix(trajectory_length=trajectory_length)
+                # Replay updates
+                for _ in range(np.random.poisson(self.replay_ratio)):
+                    trajectory = self.trajectory_buffer.sample_trajectory()
+                    G, avg_loss = self._process_trajectory(trajectory)
 
-                n = np.random.poisson(self.replay_ratio)
-
-                for _ in range(n):
-                    G, losses, trajectory_length = self._acer(run_on_policy=False)
                     all_returns.append(G)
-                    all_losses.append(np.mean(losses))
+                    all_losses.append(avg_loss)
+
+                pbar.set_postfix(average_return=np.mean(all_returns[-10:]))
 
         return TrainingResult(
             returns=np.array(all_returns),
             timesteps=np.array(trajectory_lengths),
             loss=np.array(all_losses),
         )
+
+    def get_action(self, state: np.ndarray) -> int:
+        _, action_probs = self._evaluate_state(state)
+        action = Categorical(probs=action_probs).sample().item()
+
+        return action
+
+    def get_greedy_action(self, state: np.ndarray) -> int:
+        _, action_probs = self._evaluate_state(state)
+        action = torch.argmax(action_probs).item()
+
+        return action
+
+    def save(self, file_path: str):
+        torch.save(self.actor_critic.state_dict(), file_path)
+        print(f"Model saved to {file_path}")
+
+    def load(self, file_path: str):
+        self.actor_critic.load_state_dict(
+            torch.load(file_path, map_location=self.device)
+        )
+        self.actor_critic.to(self.device)
+        print(f"Model loaded from {file_path}")
