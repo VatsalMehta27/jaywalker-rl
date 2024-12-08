@@ -72,7 +72,7 @@ class PPOAgent(Agent):
         return torch.argmax(action_logits).item()
 
     def _get_values(self, states: torch.tensor):
-        V_values = self.critic(states).squeeze()
+        V_values = self.critic(states)
 
         return V_values
 
