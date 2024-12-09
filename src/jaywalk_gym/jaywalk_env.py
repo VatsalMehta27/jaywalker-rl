@@ -50,7 +50,12 @@ class JaywalkEnv(gym.Env):
         self.action_space = spaces.Discrete(len(self.actions), start=0)
         self.observation_space = spaces.Dict(
             {
-                "traffic_light": spaces.Discrete(3),  # 0: RED, 1: YELLOW, 2: GREEN
+                "traffic_light": spaces.Box(
+                    low=0,
+                    high=len(params.light_durations),
+                    shape=(len(params.light_durations),),
+                    dtype=np.int32,
+                ),  # 0: RED, 1: YELLOW, 2: GREEN
                 "world_grid": spaces.Box(
                     low=-np.inf,
                     high=np.inf,
@@ -70,6 +75,7 @@ class JaywalkEnv(gym.Env):
 
         self.use_traffic_light = params.use_traffic_light
         self.light_durations = params.light_durations
+        self.num_lights = len(self.light_durations)
         self.light_cycle = cycle(self.light_durations.keys())
         self.light_color = next(self.light_cycle)
         self.light_index = 0
@@ -159,7 +165,7 @@ class JaywalkEnv(gym.Env):
                 self.agent_position[0] == self.goal_position[0]
                 and self.agent_position[1] == self.goal_position[1]
             ):
-                reward = self.max_reward  # / self.time_steps
+                reward = self.max_reward
                 done = True
 
         return reward, done
@@ -276,7 +282,10 @@ class JaywalkEnv(gym.Env):
             for velocity, position in lane_info["vehicles"]:
                 grid[lane_idx, position] = velocity
 
-        return {"traffic_light": self.light_index, "world_grid": grid}
+        light_one_hot = np.zeros(self.num_lights)
+        light_one_hot[self.light_index] = 1
+
+        return {"traffic_light": light_one_hot, "world_grid": grid}  # grid
 
     def _plot_grid(self, grid):
         # Convert the grid into a numerical array for easy visualization
