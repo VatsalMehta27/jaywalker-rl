@@ -24,11 +24,6 @@ class Agent(ABC):
         self.action_dim = params["action_dim"]
         self.state_dim = params["state_dim"]
 
-        # Running mean and variance for normalization
-        self.state_mean = np.zeros(self.state_dim)
-        self.state_var = np.ones(self.state_dim)
-        self.state_count = 0  # Number of states observed
-
     @staticmethod
     def argmax(values: list[int]) -> int:
         """Argmax that breaks ties randomly"""
@@ -36,6 +31,14 @@ class Agent(ABC):
         max_indices = np.flatnonzero(values == values.max())
 
         return np.random.choice(max_indices)
+
+    @staticmethod
+    def transform_state(state: dict) -> np.ndarray:
+        combined_state = np.concat(
+            [state["traffic_light"], state["world_grid"].flatten()]
+        )
+
+        return combined_state
 
     @abstractmethod
     def get_action(self, state: np.ndarray) -> int:
@@ -48,20 +51,6 @@ class Agent(ABC):
     @abstractmethod
     def train(self, episodes) -> TrainingResult:
         pass
-
-    def normalize_state(self, state: np.ndarray) -> np.ndarray:
-        """Normalize the state using running mean and variance."""
-        state_flat = state.flatten()  # Flatten the state to 1D
-        return (state_flat - self.state_mean) / (np.sqrt(self.state_var) + 1e-8)
-
-    def update_normalization(self, state: np.ndarray):
-        """Update running mean and variance using Welford's method."""
-        state_flat = state.flatten()  # Flatten the state to 1D
-        self.state_count += 1
-        delta = state_flat - self.state_mean
-        self.state_mean += delta / self.state_count
-        delta2 = state_flat - self.state_mean
-        self.state_var += delta * delta2
 
     def eval(
         self,
@@ -83,7 +72,7 @@ class Agent(ABC):
 
         while not done and self.env.time_steps < timeout:
             self.env.render(mode=render_mode)
-            action = self.get_greedy_action(state["world_grid"])
+            action = self.get_greedy_action(state)  # ["world_grid"])
             state, reward, done, _, _ = self.env.step(action)
 
             if save_video:
