@@ -203,7 +203,7 @@ class Agent(ABC):
         plt.show()
 
     @staticmethod
-    def plot_multiple_training_result(training_results: list[TrainingResult], hyperparams: list[str], name_of_hyperparams: str) -> None:
+    def plot_multiple_training_result(training_results: list[TrainingResult], hyperparams: list[str]) -> None:
         assert len(training_results) == len(hyperparams)
 
         # Create a figure with 3 subplots: one for returns, one for timesteps, and one for loss
@@ -215,7 +215,7 @@ class Agent(ABC):
         # Plot returns in the first subplot for each hyperparameter
         for i in range(len(training_results)):
             smooth_returns = Agent._moving_average(training_results[i].returns)
-            axis[0].plot(smooth_returns, color=colormap(i), label=f"Smoothed Returns: {name_of_hyperparams} - {hyperparams[i]}", linestyle="--")
+            axis[0].plot(smooth_returns, color=colormap(i), label=f"Smoothed Returns: {hyperparams[i]}", linestyle="--")
 
         axis[0].set_title("Training Returns")
         axis[0].set_xlabel("Episodes")
@@ -225,7 +225,7 @@ class Agent(ABC):
         # Plot timesteps in the second subplot for each hyperparameter
         for i in range(len(training_results)):
             smooth_returns = Agent._moving_average(training_results[i].timesteps)
-            axis[1].plot(smooth_returns, color=colormap(i), label=f"Smoothed timesteps: {name_of_hyperparams} - {hyperparams[i]}", linestyle="--")
+            axis[1].plot(smooth_returns, color=colormap(i), label=f"Smoothed timesteps: {hyperparams[i]}", linestyle="--")
             
         axis[1].set_title("Timesteps")
         axis[1].set_xlabel("Episodes")
@@ -235,7 +235,7 @@ class Agent(ABC):
         # Plot loss in the third subplot for each hyperparameter
         for i in range(len(training_results)):
             smooth_returns = Agent._moving_average(training_results[i].loss)
-            axis[2].plot(smooth_returns, color=colormap(i), label=f"Smoothed loss: {name_of_hyperparams} - {hyperparams[i]}", linestyle="--")
+            axis[2].plot(smooth_returns, color=colormap(i), label=f"Smoothed loss: {hyperparams[i]}", linestyle="--")
             
         axis[2].set_title("Loss")
         axis[2].set_xlabel("Episodes")
