@@ -210,7 +210,7 @@ class Agent(ABC):
         fig, axis = plt.subplots(3, 1, figsize=(10, 12))
 
         # Create a colormap
-        colormap = cm.get_cmap("Dark2", len(training_results))
+        colormap = cm.get_cmap("viridis", len(training_results))
 
         # Plot returns in the first subplot for each hyperparameter
         for i in range(len(training_results)):
@@ -220,7 +220,7 @@ class Agent(ABC):
         axis[0].set_title("Training Returns")
         axis[0].set_xlabel("Episodes")
         axis[0].set_ylabel("Return")
-        axis[0].legend()
+        # axis[0].legend()
 
         # Plot timesteps in the second subplot for each hyperparameter
         for i in range(len(training_results)):
@@ -230,7 +230,7 @@ class Agent(ABC):
         axis[1].set_title("Timesteps")
         axis[1].set_xlabel("Episodes")
         axis[1].set_ylabel("Timesteps")
-        axis[1].legend()
+        # axis[1].legend()
 
         # Plot loss in the third subplot for each hyperparameter
         for i in range(len(training_results)):
@@ -240,7 +240,10 @@ class Agent(ABC):
         axis[2].set_title("Loss")
         axis[2].set_xlabel("Episodes")
         axis[2].set_ylabel("Loss")
-        axis[2].legend()
+        # axis[2].legend()
+
+        handles, labels = axis[2].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='center right', bbox_to_anchor=(1.65, 0.5), ncol=1)
 
         # Adjust layout for better spacing between subplots
         plt.tight_layout()
