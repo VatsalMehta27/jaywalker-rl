@@ -20,6 +20,7 @@ class ACERAgent(Agent):
         self.gamma = params["gamma"]
         self.clip = params["clip"]
         self.kl_beta = params["kl_beta"]
+        self.early_stop = params["early_stop"]
 
         # Network and optimizer
         self.actor_critic = ActorCriticNetwork(
@@ -127,6 +128,9 @@ class ACERAgent(Agent):
         all_losses = []
         trajectory_lengths = []
 
+        past_return = None
+        same_return = 0
+
         with tqdm(range(episodes), desc="Training", unit="episode") as pbar:
             for _ in pbar:
                 # On-policy update
@@ -145,7 +149,19 @@ class ACERAgent(Agent):
                     all_returns.append(G)
                     all_losses.append(avg_loss)
 
-                pbar.set_postfix(average_return=np.mean(all_returns[-10:]))
+                average_return = np.mean(all_returns[-10:])
+
+                if average_return == past_return:
+                    same_return += 1
+
+                    if same_return >= self.early_stop:
+                        break
+                else:
+                    same_return = 0
+
+                past_return = average_return
+
+                pbar.set_postfix(average_return=average_return)
 
         return TrainingResult(
             returns=np.array(all_returns),
