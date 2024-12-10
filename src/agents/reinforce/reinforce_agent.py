@@ -183,7 +183,9 @@ class REINFORCEAgent(Agent):
             train_timesteps.append(self.env.time_steps)
 
             # Add description
-            ep_bar.set_description(f"Episode: {ep} | Return: {G} | Loss: {loss:.2f}")
+            ep_bar.set_description(
+                f"Episode: {ep} | Return: {G:.2f} | Loss: {loss:.2f}"
+            )
 
         return TrainingResult(
             returns=np.array(train_returns),
