@@ -5,7 +5,7 @@ from typing import Literal, Optional
 from gymnasium import Env
 from matplotlib import pyplot as plt
 import matplotlib
-import matplotlib.cm as cm
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import cv2
 
@@ -203,47 +203,94 @@ class Agent(ABC):
         plt.show()
 
     @staticmethod
-    def plot_multiple_training_result(training_results: list[TrainingResult], hyperparams: list[str]) -> None:
+    def plot_multiple_training_result(
+        training_results: list[TrainingResult], hyperparams: list[str]
+    ) -> None:
         assert len(training_results) == len(hyperparams)
+
+        # Define a custom colormap using several base colors
+        colors = [
+            "#264653",  # Deep teal
+            "#2a9d8f",  # Emerald green
+            "#e9c46a",  # Golden yellow
+            "#f4a261",  # Soft orange
+            "#e76f51",  # Terracotta red
+            "#a855f7",  # Vibrant purple
+            "#1d3557",  # Dark blue
+            "#457b9d",  # Steel blue
+            "#81b29a",  # Sage green
+            "#ef476f",  # Watermelon pink
+            "#118ab2",  # Cerulean
+            "#073b4c",  # Midnight blue
+            "#06d6a0",  # Aquamarine
+            "#ffd166",  # Mustard yellow
+            "#e63946",  # Crimson red
+            "#8338ec",  # Electric purple
+            "#3a86ff",  # Sky blue
+            "#ff006e",  # Magenta
+            "#8d99ae",  # Dusty lavender
+            "#ffbe0b",  # Bright sunflower
+            "#6a4c93",  # Royal purple
+            "#00a676",  # Tropical green
+            "#d62828",  # Scarlet red
+        ]
+
+        custom_cmap = LinearSegmentedColormap.from_list("custom_cmap", colors, N=30)
 
         # Create a figure with 3 subplots: one for returns, one for timesteps, and one for loss
         fig, axis = plt.subplots(3, 1, figsize=(10, 12))
 
-        # Create a colormap
-        colormap = cm.get_cmap("viridis", len(training_results))
-
         # Plot returns in the first subplot for each hyperparameter
         for i in range(len(training_results)):
             smooth_returns = Agent._moving_average(training_results[i].returns)
-            axis[0].plot(smooth_returns, color=colormap(i), label=f"Smoothed Returns: {hyperparams[i]}", linestyle="--")
+            axis[0].plot(
+                smooth_returns,
+                color=custom_cmap(i / len(training_results)),  # Use the custom colormap
+                label=f"Smoothed Returns: {hyperparams[i]}",
+                linestyle="--",
+            )
 
         axis[0].set_title("Training Returns")
         axis[0].set_xlabel("Episodes")
         axis[0].set_ylabel("Return")
-        # axis[0].legend()
 
         # Plot timesteps in the second subplot for each hyperparameter
         for i in range(len(training_results)):
-            smooth_returns = Agent._moving_average(training_results[i].timesteps)
-            axis[1].plot(smooth_returns, color=colormap(i), label=f"Smoothed timesteps: {hyperparams[i]}", linestyle="--")
-            
+            smooth_timesteps = Agent._moving_average(training_results[i].timesteps)
+            axis[1].plot(
+                smooth_timesteps,
+                color=custom_cmap(i / len(training_results)),  # Use the custom colormap
+                label=f"Smoothed Timesteps: {hyperparams[i]}",
+                linestyle="--",
+            )
+
         axis[1].set_title("Timesteps")
         axis[1].set_xlabel("Episodes")
         axis[1].set_ylabel("Timesteps")
-        # axis[1].legend()
 
         # Plot loss in the third subplot for each hyperparameter
         for i in range(len(training_results)):
-            smooth_returns = Agent._moving_average(training_results[i].loss)
-            axis[2].plot(smooth_returns, color=colormap(i), label=f"Smoothed loss: {hyperparams[i]}", linestyle="--")
-            
+            smooth_loss = Agent._moving_average(training_results[i].loss)
+            axis[2].plot(
+                smooth_loss,
+                color=custom_cmap(i / len(training_results)),  # Use the custom colormap
+                label=f"Smoothed Loss: {hyperparams[i]}",
+                linestyle="--",
+            )
+
         axis[2].set_title("Loss")
         axis[2].set_xlabel("Episodes")
         axis[2].set_ylabel("Loss")
-        # axis[2].legend()
 
+        # Add a shared legend for all subplots
         handles, labels = axis[2].get_legend_handles_labels()
-        fig.legend(handles, labels, loc='center right', bbox_to_anchor=(1.65, 0.5), ncol=1)
+        fig.legend(
+            handles,
+            labels,
+            loc="center right",
+            bbox_to_anchor=(1.45, 1),
+            ncol=1,
+        )
 
         # Adjust layout for better spacing between subplots
         plt.tight_layout()
