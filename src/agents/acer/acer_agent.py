@@ -153,13 +153,18 @@ class ACERAgent(Agent):
             loss=np.array(all_losses),
         )
 
-    def get_action(self, state: np.ndarray) -> int:
+    def get_action_probs(self, state: dict):
+        _, action_probs = self._evaluate_state(state)
+
+        return action_probs
+
+    def get_action(self, state: dict) -> int:
         _, action_probs = self._evaluate_state(state)
         action = Categorical(probs=action_probs).sample().item()
 
         return action
 
-    def get_greedy_action(self, state: np.ndarray) -> int:
+    def get_greedy_action(self, state: dict) -> int:
         _, action_probs = self._evaluate_state(state)
         action = torch.argmax(action_probs).item()
 

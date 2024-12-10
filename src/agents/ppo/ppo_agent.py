@@ -53,6 +53,11 @@ class PPOAgent(Agent):
 
         return action
 
+    def get_action_probs(self, state):
+        _, action_probs = self._get_action_prob(state)
+
+        return torch.exp(action_probs)
+
     def _get_action_prob(self, state):
         state_tensor = torch.tensor(self.transform_state(state)).float().view(1, -1)
 

@@ -81,6 +81,12 @@ class DQNAgent(Agent):
 
         return self.get_greedy_action(state)
 
+    def get_action_probs(self, state):
+        state_tensor = torch.tensor(self.transform_state(state)).float().view(1, -1)
+        q_values = self.behavior_policy_net(state_tensor)
+
+        return q_values
+
     def get_greedy_action(self, state):
         state_tensor = torch.tensor(self.transform_state(state)).float().view(1, -1)
 

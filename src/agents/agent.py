@@ -45,6 +45,10 @@ class Agent(ABC):
         pass
 
     @abstractmethod
+    def get_action_probs(self, state: np.ndarray) -> list[float]:
+        pass
+
+    @abstractmethod
     def get_greedy_action(self, state: np.ndarray) -> int:
         pass
 

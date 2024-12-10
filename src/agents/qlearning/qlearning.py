@@ -44,6 +44,11 @@ class QLearning(Agent):
 
         return self.get_greedy_action(state)
 
+    def get_action_probs(self, state):
+        state = self.nested_tuple(self.transform_state(state))
+
+        return self.Q[state]
+
     def get_greedy_action(self, state: dict) -> int:
         state = self.nested_tuple(self.transform_state(state))
 

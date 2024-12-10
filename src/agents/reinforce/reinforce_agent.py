@@ -71,6 +71,11 @@ class REINFORCEAgent(Agent):
 
         return action
 
+    def get_action_probs(self, state):
+        _, _, action_probs = self._evaluate_state(state)
+
+        return torch.exp(action_probs)
+
     def get_greedy_action(self, state: np.ndarray) -> int:
         """Get a greedy action (highest probability) from the policy."""
         normalized_state = self.normalize_state(state)
