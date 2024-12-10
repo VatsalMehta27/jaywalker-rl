@@ -1,12 +1,24 @@
 from gymnasium import Env
 import numpy as np
 import torch
+from torch import nn
 import tqdm
 from src.agents.agent import TrainingResult
 from src.agents.reinforce.network import REINFORCEBaselineNetwork
 from src.agents.agent import Agent
-from src.utils.utils import customized_weights_init
 from torch.distributions import Categorical
+
+
+# customized weight initialization
+def customized_weights_init(m):
+    # compute the gain
+    gain = nn.init.calculate_gain("relu")
+
+    # init the linear layer
+    if isinstance(m, nn.Linear):
+        # init the params using uniform
+        nn.init.xavier_uniform_(m.weight, gain=gain)
+        nn.init.constant_(m.bias, 0)
 
 
 class REINFORCEAgent(Agent):
