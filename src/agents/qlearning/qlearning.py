@@ -2,11 +2,12 @@ import pickle
 from gymnasium import Env
 from collections import defaultdict
 import numpy as np
+from tqdm import tqdm
 
 from src.agents.agent import Agent, TrainingResult
 
 
-class QLearning(Agent):
+class QLearningAgent(Agent):
     def __init__(self, env: Env, params: dict):
         super().__init__(env, params)
         # define the parameters
@@ -36,7 +37,7 @@ class QLearning(Agent):
         if array.ndim == 1:
             return tuple(array)
 
-        return tuple(QLearning.nested_tuple(subarr) for subarr in array)
+        return tuple(QLearningAgent.nested_tuple(subarr) for subarr in array)
 
     def get_action(self, state: dict) -> int:
         if np.random.random() < self.epsilon:
@@ -66,7 +67,7 @@ class QLearning(Agent):
         returns = []
         timesteps = []
 
-        for _ in range(episodes):
+        for _ in tqdm(range(episodes)):
             state, _ = self.env.reset()
             done = False
 
@@ -78,9 +79,6 @@ class QLearning(Agent):
 
                 next_state, reward, done, _, _ = self.env.step(action)
                 done = done or self.env.time_steps >= self.timeout
-
-                if self.env.time_steps >= self.timeout:
-                    print("timeout")
 
                 ep_rewards.append(reward)
 
