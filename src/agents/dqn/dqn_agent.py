@@ -1,12 +1,10 @@
+import numpy as np
 import torch
 from torch import nn
-import numpy as np
-from gymnasium import Env
 import tqdm
-
-
-from src.agents.dqn.replay_buffer import ReplayBuffer
+from src.agents.agent import Agent, TrainingResult
 from src.agents.dqn.dqn import DQN
+from src.agents.dqn.replay_buffer import ReplayBuffer
 from src.utils.epsilon_schedules.exponential_schedule import ExponentialSchedule
 from src.utils.epsilon_schedules.linear_schedule import LinearSchedule
 
@@ -15,11 +13,6 @@ from src.utils.epsilon_schedules.linear_schedule import LinearSchedule
 def customized_weights_init(m):
     # compute the gain
     gain = nn.init.calculate_gain("relu")
-    # init the convolutional layer
-    if isinstance(m, nn.Conv2d):
-        # init the params using uniform
-        nn.init.xavier_uniform_(m.weight, gain=gain)
-        nn.init.constant_(m.bias, 0)
     # init the linear layer
     if isinstance(m, nn.Linear):
         # init the params using uniform
@@ -27,14 +20,9 @@ def customized_weights_init(m):
         nn.init.constant_(m.bias, 0)
 
 
-class DQNAgent:
-    # initialize the agent
-    def __init__(
-        self,
-        env: Env,
-        params,
-    ):
-        self.env = env
+class DQNAgent(Agent):
+    def __init__(self, env, params):
+        super().__init__(env, params)
 
         if params["scheduler_type"] == "linear":
             self.epsilon_scheduler = LinearSchedule(
@@ -49,28 +37,18 @@ class DQNAgent:
                 duration=params["epsilon_duration"],
             )
 
-        # save the parameters
-        self.params = params
-
-        # environment parameters
-        self.action_dim = params["action_dim"]
-        self.obs_dim = params["state_dim"]
-
-        # executable actions
-        self.action_space = params["action_space"]
-
         # create value network
         self.behavior_policy_net = DQN(
-            state_dim=params["state_dim"],
-            action_dim=params["action_dim"],
+            state_dim=self.state_dim,
+            action_dim=self.action_dim,
             num_layers=params["num_layers"],
             hidden_dim=params["hidden_dim"],
         )
 
         # create target network
         self.target_policy_net = DQN(
-            state_dim=params["state_dim"],
-            action_dim=params["action_dim"],
+            state_dim=self.state_dim,
+            action_dim=self.action_dim,
             num_layers=params["num_layers"],
             hidden_dim=params["hidden_dim"],
         )
@@ -94,26 +72,24 @@ class DQNAgent:
         self.replay_buffer = ReplayBuffer(params["replay_buffer_size"])
         self.replay_buffer.populate(self.env, params["replay_buffer_prepopulate_size"])
 
-    def get_action(self, state, eps):
-        if np.random.random() < eps:
+        self.epsilon = params["epsilon_start_value"]
+
+    def get_action(self, state):
+        if np.random.random() < self.epsilon:
             action = np.random.choice(self.action_space, 1)[0]
             return action
 
         return self.get_greedy_action(state)
 
-    def get_greedy_action(self, state, rollout=False):
-        state = self._arr_to_tensor(state).flatten().view(1, -1)
+    def get_greedy_action(self, state):
+        state_tensor = torch.tensor(self.transform_state(state)).float().view(1, -1)
 
         with torch.no_grad():
-            q_values = self.behavior_policy_net(state)
-            action = q_values.max(dim=1)[1].item()
-            if rollout:
-                print(q_values)
-                print(action)
+            q_values = self.behavior_policy_net(state_tensor)
+            action = torch.argmax(q_values).item()
 
         return self.action_space[int(action)]
 
-    # update behavior policy
     def update_behavior_policy(self, batch_data):
         # convert batch data to tensor and put them on device
         batch_data_tensor = self._batch_to_tensor(batch_data)
@@ -155,12 +131,6 @@ class DQNAgent:
         # hard update
         self.target_policy_net.load_state_dict(self.behavior_policy_net.state_dict())
 
-    # auxiliary functions
-    def _arr_to_tensor(self, arr):
-        arr = np.array(arr)
-        arr_tensor = torch.from_numpy(arr).float().to(self.device)
-        return arr_tensor
-
     def _batch_to_tensor(self, batch_data):
         # store the tensor
         batch_data_tensor = {
@@ -193,35 +163,32 @@ class DQNAgent:
 
         return batch_data_tensor
 
-    def run(self):
+    def train(self, training_steps):
         episode_timestep = 0
-        train_rewards = []
         rewards = []
+
         train_returns = []
         train_loss = []
+        train_timesteps = []
 
         # reset the environment
         state, _ = self.env.reset()
-        state = state["world_grid"]
 
         # start training
-        pbar = tqdm.trange(self.params["total_training_time_step"])
+        pbar = tqdm.trange(training_steps)
         last_best_return = 0
 
         for total_timestep in pbar:
             # scheduled epsilon at time step t
-            eps_t = self.epsilon_scheduler.get_value(total_timestep)
+            self.epsilon = self.epsilon_scheduler.get_value(total_timestep)
             # get one epsilon-greedy action
-            action = self.get_action(state, eps_t)
+            action = self.get_action(state)
 
             # step in the environment
             next_state, reward, done, _, _ = self.env.step(action)
-            next_state = next_state["world_grid"]
 
             # add to the buffer
-            self.replay_buffer.add(
-                state, self.action_space.index(action), reward, next_state, done
-            )
+            self.replay_buffer.add(state, action, reward, next_state, done)
             rewards.append(reward)
 
             # check termination
@@ -238,22 +205,13 @@ class DQNAgent:
                     )
                     last_best_return = G
 
-                # store the return
+                # store the return and timesteps
                 train_returns.append(G)
-                train_rewards.append(rewards)
-                episode_idx = len(train_returns)
-
-                # print the information
-                pbar.set_description(
-                    f"Ep={episode_idx} | "
-                    f"G={np.mean(train_returns[-10:]) if train_returns else 0:.2f} | "
-                    f"Eps={eps_t}"
-                )
+                train_timesteps.append(episode_timestep)
 
                 # reset the environment
                 episode_timestep, rewards = 0, []
                 state, _ = self.env.reset()
-                state = state["world_grid"]
             else:
                 # increment
                 state = next_state
@@ -271,4 +229,64 @@ class DQNAgent:
             if np.mod(total_timestep, self.params["freq_update_target_policy"]) == 0:
                 self.update_target_policy()
 
-        return train_rewards, train_returns, train_loss
+        # Convert collected metrics to numpy arrays
+        train_returns = np.array(train_returns, dtype=np.int)
+        train_timesteps = np.array(train_timesteps, dtype=np.int)
+        train_loss = np.array(train_loss, dtype=np.int)
+
+        return TrainingResult(
+            returns=train_returns,
+            timesteps=train_timesteps,
+            loss=train_loss,
+        )
+
+    def save(self, filepath: str) -> None:
+        """
+        Save the agent's policy networks, optimizer state, and epsilon scheduler.
+        """
+        torch.save(
+            {
+                "behavior_policy_net": self.behavior_policy_net.state_dict(),
+                "target_policy_net": self.target_policy_net.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "epsilon_scheduler": {
+                    "scheduler_type": self.params["scheduler_type"],
+                    "start_value": self.epsilon_scheduler.start_value,
+                    "end_value": self.epsilon_scheduler.end_value,
+                    "duration": self.epsilon_scheduler.duration,
+                },
+                "params": self.params,
+            },
+            filepath,
+        )
+        print(f"Agent's state has been saved to {filepath}")
+
+    def load(self, filepath: str) -> None:
+        """
+        Load the agent's policy networks, optimizer state, and epsilon scheduler.
+        """
+        checkpoint = torch.load(filepath, map_location=self.device)
+
+        self.behavior_policy_net.load_state_dict(checkpoint["behavior_policy_net"])
+        self.target_policy_net.load_state_dict(checkpoint["target_policy_net"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+        # Load epsilon scheduler
+        scheduler_data = checkpoint.get("epsilon_scheduler", {})
+        if scheduler_data.get("scheduler_type") == "linear":
+            self.epsilon_scheduler = LinearSchedule(
+                start_value=scheduler_data["start_value"],
+                end_value=scheduler_data["end_value"],
+                duration=scheduler_data["duration"],
+            )
+        elif scheduler_data.get("scheduler_type") == "exponential":
+            self.epsilon_scheduler = ExponentialSchedule(
+                start_value=scheduler_data["start_value"],
+                end_value=scheduler_data["end_value"],
+                duration=scheduler_data["duration"],
+            )
+
+        # Update device
+        self.behavior_policy_net.to(self.device)
+        self.target_policy_net.to(self.device)
+        print(f"Agent's state has been loaded from {filepath}")
