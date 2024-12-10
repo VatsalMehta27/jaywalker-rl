@@ -89,16 +89,13 @@ class ReplayBuffer(object):
         :param num_steps: Number of steps to populate the replay memory
         """
         state, _ = env.reset()
-        state = state["world_grid"]
 
         for _ in range(num_steps):
             action = env.action_space.sample()
             next_state, reward, done, _, _ = env.step(action)
-            next_state = next_state["world_grid"]
             self.add(state, action, reward, next_state, done)
 
             if done:
                 state, _ = env.reset()
-                state = state["world_grid"]
             else:
                 state = next_state

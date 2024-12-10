@@ -24,6 +24,8 @@ class DQNAgent(Agent):
     def __init__(self, env, params):
         super().__init__(env, params)
 
+        self.action_space = params["action_space"]
+
         if params["scheduler_type"] == "linear":
             self.epsilon_scheduler = LinearSchedule(
                 start_value=params["epsilon_start_value"],
@@ -70,7 +72,7 @@ class DQNAgent(Agent):
         self.loss = nn.MSELoss()
 
         self.replay_buffer = ReplayBuffer(params["replay_buffer_size"])
-        self.replay_buffer.populate(self.env, params["replay_buffer_prepopulate_size"])
+        # self.replay_buffer.populate(self.env, params["replay_buffer_prepopulate_size"])
 
         self.epsilon = params["epsilon_start_value"]
 
@@ -194,7 +196,13 @@ class DQNAgent(Agent):
             next_state, reward, done, _, _ = self.env.step(action)
 
             # add to the buffer
-            self.replay_buffer.add(state, action, reward, next_state, done)
+            self.replay_buffer.add(
+                self.transform_state(state),
+                action,
+                reward,
+                self.transform_state(next_state),
+                done,
+            )
             rewards.append(reward)
 
             # check termination
@@ -204,7 +212,7 @@ class DQNAgent(Agent):
                 for r in reversed(rewards):
                     G = r + self.params["gamma"] * G
 
-                if G > last_best_return:
+                if self.params["model_name"] and G > last_best_return:
                     torch.save(
                         self.behavior_policy_net.state_dict(),
                         f"./checkpoints/{self.params['model_name']}",
@@ -223,22 +231,29 @@ class DQNAgent(Agent):
                 state = next_state
                 episode_timestep += 1
 
-            # update the behavior model
-            if np.mod(total_timestep, self.params["freq_update_behavior_policy"]) == 0:
-                sample_batch = self.replay_buffer.sample_batch(
-                    self.params["batch_size"]
-                )
-                loss = self.update_behavior_policy(sample_batch)
-                train_loss.append(loss)
+            if total_timestep > self.params["start_training_step"]:
+                # update the behavior model
+                if (
+                    np.mod(total_timestep, self.params["freq_update_behavior_policy"])
+                    == 0
+                ):
+                    sample_batch = self.replay_buffer.sample_batch(
+                        self.params["batch_size"]
+                    )
+                    loss = self.update_behavior_policy(sample_batch)
+                    train_loss.append(loss)
 
-            # update the target model
-            if np.mod(total_timestep, self.params["freq_update_target_policy"]) == 0:
-                self.update_target_policy()
+                # update the target model
+                if (
+                    np.mod(total_timestep, self.params["freq_update_target_policy"])
+                    == 0
+                ):
+                    self.update_target_policy()
 
         # Convert collected metrics to numpy arrays
-        train_returns = np.array(train_returns, dtype=np.int)
-        train_timesteps = np.array(train_timesteps, dtype=np.int)
-        train_loss = np.array(train_loss, dtype=np.int)
+        train_returns = np.array(train_returns)
+        train_timesteps = np.array(train_timesteps)
+        train_loss = np.array(train_loss)
 
         return TrainingResult(
             returns=train_returns,
