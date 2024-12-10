@@ -41,12 +41,12 @@ class REINFORCEAgent(Agent):
 
     def normalize_state(self, state: np.ndarray) -> np.ndarray:
         """Normalize the state using running mean and variance."""
-        state_flat = state.flatten()  # Flatten the state to 1D
+        state_flat = self.transform_state(state)  # Flatten the state to 1D
         return (state_flat - self.state_mean) / (np.sqrt(self.state_var) + 1e-8)
 
     def update_normalization(self, state: np.ndarray):
         """Update running mean and variance using Welford's method."""
-        state_flat = state.flatten()  # Flatten the state to 1D
+        state_flat = self.transform_state(state)  # Flatten the state to 1D
         self.state_count += 1
         delta = state_flat - self.state_mean
         self.state_mean += delta / self.state_count
@@ -56,6 +56,7 @@ class REINFORCEAgent(Agent):
     def get_action(self, state: np.ndarray) -> int:
         """Get an action using the policy."""
         _, action, _ = self._evaluate_state(state)
+
         return action
 
     def get_greedy_action(self, state: np.ndarray) -> int:
@@ -86,7 +87,6 @@ class REINFORCEAgent(Agent):
 
         state, _ = self.env.reset()
         done = False
-        state = state["world_grid"]
 
         while not done:
             # Update normalization with the current state
@@ -94,7 +94,6 @@ class REINFORCEAgent(Agent):
 
             state_value, action, log_prob = self._evaluate_state(state)
             next_state, reward, terminated, _, _ = self.env.step(action)
-            next_state = next_state["world_grid"]
 
             truncated = self.env.time_steps >= self.timeout
             done = terminated or truncated
@@ -175,9 +174,33 @@ class REINFORCEAgent(Agent):
             loss=np.array(train_losses),
         )
 
-    def load(self, filepath: str) -> None:
-        state_dict = torch.load(filepath, weights_only=True)
-        self.policy.load_state_dict(state_dict=state_dict)
-
     def save(self, filepath: str) -> None:
-        torch.save(self.policy.state_dict(), filepath)
+        """
+        Save the policy network's state_dict and optimizer state.
+        """
+        torch.save(
+            {
+                "policy_state_dict": self.policy.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "state_mean": self.state_mean,
+                "state_var": self.state_var,
+                "state_count": self.state_count,
+            },
+            filepath,
+        )
+        print(f"Model and optimizer states saved to {filepath}")
+
+    def load(self, filepath: str) -> None:
+        """
+        Load the policy network's state_dict and optimizer state.
+        """
+        checkpoint = torch.load(filepath, map_location=self.device)
+
+        self.policy.load_state_dict(checkpoint["policy_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.state_mean = checkpoint.get("state_mean", self.state_mean)
+        self.state_var = checkpoint.get("state_var", self.state_var)
+        self.state_count = checkpoint.get("state_count", self.state_count)
+
+        self.policy.to(self.device)
+        print(f"Model and optimizer states loaded from {filepath}")

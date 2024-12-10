@@ -32,10 +32,12 @@ class ACERAgent(Agent):
 
         self.trajectory_buffer = TrajectoryBuffer(params["replay_buffer_size"])
 
-    def _evaluate_state(self, state: np.ndarray):
+    def _evaluate_state(self, state: dict):
         """Evaluate the state to get value and action probabilities."""
         state_tensor = (
-            torch.tensor(state, dtype=torch.float32).view(1, -1).to(self.device)
+            torch.tensor(self.transform_state(state), dtype=torch.float32)
+            .view(1, -1)
+            .to(self.device)
         )
         state_value, action_probs = self.actor_critic(state_tensor)
 
@@ -164,12 +166,30 @@ class ACERAgent(Agent):
         return action
 
     def save(self, file_path: str):
-        torch.save(self.actor_critic.state_dict(), file_path)
-        print(f"Model saved to {file_path}")
+        """
+        Save the actor-critic network and optimizer to the specified file path.
+
+        Args:
+            file_path (str): Path to save the model and optimizer.
+        """
+        torch.save(
+            {
+                "actor_critic_state_dict": self.actor_critic.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+            },
+            file_path,
+        )
+        print(f"Model and optimizer successfully saved to {file_path}")
 
     def load(self, file_path: str):
-        self.actor_critic.load_state_dict(
-            torch.load(file_path, map_location=self.device)
-        )
+        """
+        Load the actor-critic network and optimizer from the specified file path.
+
+        Args:
+            file_path (str): Path from which to load the model and optimizer.
+        """
+        checkpoint = torch.load(file_path, map_location=self.device)
+        self.actor_critic.load_state_dict(checkpoint["actor_critic_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.actor_critic.to(self.device)
-        print(f"Model loaded from {file_path}")
+        print(f"Model and optimizer successfully loaded from {file_path}")

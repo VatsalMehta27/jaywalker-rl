@@ -38,20 +38,20 @@ class QLearning(Agent):
 
         return tuple(QLearning.nested_tuple(subarr) for subarr in array)
 
-    def get_action(self, state: np.ndarray) -> int:
+    def get_action(self, state: dict) -> int:
         if np.random.random() < self.epsilon:
             return self.actions[np.random.choice(self.action_num)]
 
         return self.get_greedy_action(state)
 
-    def get_greedy_action(self, state: np.ndarray) -> int:
-        state = self.nested_tuple(state)
+    def get_greedy_action(self, state: dict) -> int:
+        state = self.nested_tuple(self.transform_state(state))
 
         return self.actions[self.argmax(self.Q[state])]
 
-    def update(self, s: np.ndarray, a: int, r: int, s_prime: np.ndarray) -> None:
-        s = self.nested_tuple(s)
-        s_prime = self.nested_tuple(s_prime)
+    def update(self, s: dict, a: int, r: int, s_prime: dict) -> None:
+        s = self.nested_tuple(self.transform_state(s))
+        s_prime = self.nested_tuple(self.transform_state(s_prime))
 
         self.Q[s][a] = self.Q[s][a] + self.alpha * (
             r + self.gamma * max(self.Q[s_prime]) - self.Q[s][a]
@@ -63,24 +63,22 @@ class QLearning(Agent):
 
         for _ in range(episodes):
             state, _ = self.env.reset()
-            state = state["world_grid"]
             done = False
 
             ep_rewards = []
 
             while not done:
-                if self.env.time_steps >= self.timeout:
-                    reward = -1000
-                    print("timeout")
-                    break
-
                 action = self.get_action(state)
                 action_index = self.action_mapping[action]
 
                 next_state, reward, done, _, _ = self.env.step(action)
+                done = done or self.env.time_steps >= self.timeout
+
+                if self.env.time_steps >= self.timeout:
+                    print("timeout")
+
                 ep_rewards.append(reward)
 
-                next_state = next_state["world_grid"]
                 self.update(state, action_index, reward, next_state)
 
                 state = next_state

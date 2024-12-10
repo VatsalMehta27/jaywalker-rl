@@ -208,7 +208,47 @@ class PPOAgent(Agent):
         )
 
     def load(self, filepath):
-        return super().load(filepath)
+        """
+        Loads the actor and critic models along with their optimizers.
+
+        Parameters:
+            filepath (str): Base path where the models and optimizers are saved.
+        """
+        # Load actor model and optimizer
+        actor_checkpoint = torch.load(f"{filepath}_actor.pth", map_location=self.device)
+        self.actor.load_state_dict(actor_checkpoint["model_state_dict"])
+        self.actor_optimizer.load_state_dict(actor_checkpoint["optimizer_state_dict"])
+        self.actor.to(self.device)
+
+        # Load critic model and optimizer
+        critic_checkpoint = torch.load(
+            f"{filepath}_critic.pth", map_location=self.device
+        )
+        self.critic.load_state_dict(critic_checkpoint["model_state_dict"])
+        self.critic_optimizer.load_state_dict(critic_checkpoint["optimizer_state_dict"])
+        self.critic.to(self.device)
 
     def save(self, filepath):
-        return super().save(filepath)
+        """
+        Saves the actor and critic models along with their optimizers.
+
+        Parameters:
+            filepath (str): Base path where the models and optimizers will be saved.
+        """
+        # Save actor model and optimizer
+        torch.save(
+            {
+                "model_state_dict": self.actor.state_dict(),
+                "optimizer_state_dict": self.actor_optimizer.state_dict(),
+            },
+            f"{filepath}_actor.pth",
+        )
+
+        # Save critic model and optimizer
+        torch.save(
+            {
+                "model_state_dict": self.critic.state_dict(),
+                "optimizer_state_dict": self.critic_optimizer.state_dict(),
+            },
+            f"{filepath}_critic.pth",
+        )
