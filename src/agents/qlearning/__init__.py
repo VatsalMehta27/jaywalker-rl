@@ -1,3 +1,3 @@
-from src.agents.qlearning.qlearning import QLearning
+from src.agents.qlearning.qlearning import QLearningAgent
 
-__all__ = ["QLearning"]
+__all__ = ["QLearningAgent"]
