@@ -106,7 +106,7 @@ def plot_input_layer_weights(
 
 
 def plot_weight_attribution(
-    model, state_input, rows, cols, title="Attribution Heatmap"
+    model, state_input, rows, cols, title="Attribution Heatmap", wrapper_func=None
 ):
     """
     Computes and plots the weight attribution for a given state input using Captum.
@@ -124,8 +124,10 @@ def plot_weight_attribution(
     # Ensure the model is in evaluation mode
     model.eval()
 
-    # Define the attribution method
-    ig = IntegratedGradients(model)
+    if wrapper_func:
+        ig = IntegratedGradients(wrapper_func)
+    else:
+        ig = IntegratedGradients(model)
 
     # Compute attributions
     state_input.requires_grad = True
