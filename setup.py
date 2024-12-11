@@ -16,5 +16,6 @@ setup(
         "opencv-python",
         "tqdm",
         "setuptools",
+        "captum",
     ],
 )

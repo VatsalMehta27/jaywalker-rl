@@ -4,3 +4,4 @@ matplotlib
 pre-commit
 torch
 opencv-python
+captum
