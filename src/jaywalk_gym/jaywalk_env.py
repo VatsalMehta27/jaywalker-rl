@@ -111,7 +111,7 @@ class JaywalkEnv(gym.Env):
             i: False for i in range(1, self.grid_shape[0] - 1) if i % 3 == 0
         }
 
-        for _ in range(10):
+        for _ in range(18):
             self._environment_movement()
 
         return self._get_observation(), {}
